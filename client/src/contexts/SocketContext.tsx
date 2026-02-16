@@ -102,10 +102,11 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       auth: user
         ? { userId: user.id, username: user.username }
         : {},
-      transports: ["websocket", "polling"],
-      reconnectionAttempts: 3,
+      transports: ["polling", "websocket"],
+      upgrade: true,
+      reconnectionAttempts: 5,
       reconnectionDelay: 2000,
-      timeout: 10000,
+      timeout: 15000,
     });
 
     s.on("connect", () => setIsConnected(true));

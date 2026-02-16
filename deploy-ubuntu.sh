@@ -61,12 +61,12 @@ read -p "Install and configure Nginx as reverse proxy? (y/n) [y]: " INSTALL_NGIN
 INSTALL_NGINX=${INSTALL_NGINX:-y}
 
 # Repository URL
-read -p "Git repository URL [https://github.com/yourusername/ipcr-ewers.git]: " REPO_URL
-REPO_URL=${REPO_URL:-https://github.com/yourusername/ipcr-ewers.git}
+read -p "Git repository URL [https://github.com/rolandconsultnig/ewers-w2.git]: " REPO_URL
+REPO_URL=${REPO_URL:-https://github.com/rolandconsultnig/ewers-w2.git}
 
 # App port
-read -p "Application port [5000]: " APP_PORT
-APP_PORT=${APP_PORT:-5000}
+read -p "Application port [4342]: " APP_PORT
+APP_PORT=${APP_PORT:-4342}
 
 # API keys
 echo -e "${YELLOW}Do you want to configure external services? (Social media, SMS) (y/n) [n]:${NC} "
@@ -141,9 +141,9 @@ apt upgrade -y
 echo -e "\n${YELLOW}Installing required packages...${NC}"
 apt install -y git curl build-essential
 
-# Install Node.js
-echo -e "\n${YELLOW}Installing Node.js...${NC}"
-curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
+# Install Node.js 20 LTS
+echo -e "\n${YELLOW}Installing Node.js 20 LTS...${NC}"
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt install -y nodejs
 
 # Check Node.js installation
@@ -171,14 +171,15 @@ npm install -g pm2
 # Clone repository
 echo -e "\n${YELLOW}Cloning application repository...${NC}"
 cd $HOME_DIR
-if [ -d "ipcr-ewers" ]; then
+APP_DIR="ewers-w2"
+if [ -d "$APP_DIR" ]; then
   echo -e "${YELLOW}Directory already exists. Removing...${NC}"
-  rm -rf ipcr-ewers
+  rm -rf $APP_DIR
 fi
 
-git clone $REPO_URL ipcr-ewers
-chown -R $ACTUAL_USER:$ACTUAL_USER ipcr-ewers
-cd ipcr-ewers
+git clone $REPO_URL $APP_DIR
+chown -R $ACTUAL_USER:$ACTUAL_USER $APP_DIR
+cd $APP_DIR
 
 # Create environment file
 echo -e "\n${YELLOW}Creating environment configuration...${NC}"
@@ -186,6 +187,7 @@ cat > .env << EOL
 NODE_ENV=production
 DATABASE_URL=postgresql://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME
 SESSION_SECRET=$SESSION_SECRET
+PORT=$APP_PORT
 EOL
 
 # Add external service configurations if provided
@@ -227,92 +229,77 @@ chown $ACTUAL_USER:$ACTUAL_USER .env
 
 # Install dependencies and build app
 echo -e "\n${YELLOW}Installing dependencies and building application...${NC}"
-sudo -u $ACTUAL_USER bash -c "cd $HOME_DIR/ipcr-ewers && npm ci"
-sudo -u $ACTUAL_USER bash -c "cd $HOME_DIR/ipcr-ewers && npm run build"
+sudo -u $ACTUAL_USER bash -c "cd $HOME_DIR/$APP_DIR && npm ci"
+sudo -u $ACTUAL_USER bash -c "cd $HOME_DIR/$APP_DIR && npm run build"
 
 # Run database migrations
 echo -e "\n${YELLOW}Running database migrations...${NC}"
-sudo -u $ACTUAL_USER bash -c "cd $HOME_DIR/ipcr-ewers && npm run db:push"
+sudo -u $ACTUAL_USER bash -c "cd $HOME_DIR/$APP_DIR && npm run db:push" || echo -e "${YELLOW}If db:push prompted for input, run manually: cd $HOME_DIR/$APP_DIR && npm run db:push${NC}"
 
-# Create admin user
+# Create admin user via seed script
 echo -e "\n${YELLOW}Creating admin user...${NC}"
-
-# Hash the admin password
-HASHED_PASSWORD=$(node -e "
-const { scryptSync, randomBytes } = require('crypto');
-const password = '$ADMIN_PASSWORD';
-const salt = randomBytes(16).toString('hex');
-const buf = scryptSync(password, salt, 64);
-console.log(`\${buf.toString('hex')}.\${salt}`);
-")
-
-# Create a script to add the admin user
-cat > $HOME_DIR/ipcr-ewers/create-admin.js << EOL
-const { db } = require('./server/db');
-const { users } = require('./shared/schema');
-
-async function createAdmin() {
-  // Check if user already exists
-  const existingUser = await db.query.users.findFirst({
-    where: (users, { eq }) => eq(users.username, '$ADMIN_USERNAME')
-  });
-  
-  if (existingUser) {
-    console.log('Admin user already exists');
-    process.exit(0);
-  }
-
-  // Create admin user
-  await db.insert(users).values({
-    username: '$ADMIN_USERNAME',
-    password: '$HASHED_PASSWORD',
-    email: 'admin@example.com',
-    fullName: 'System Administrator',
-    role: 'admin',
-    securityClearance: 7,
-    createdAt: new Date(),
-    updatedAt: new Date()
-  });
-  
-  console.log('Admin user created successfully');
-}
-
-createAdmin()
-  .then(() => process.exit(0))
-  .catch(err => {
-    console.error('Error creating admin user:', err);
-    process.exit(1);
-  });
-EOL
-
-chown $ACTUAL_USER:$ACTUAL_USER $HOME_DIR/ipcr-ewers/create-admin.js
-sudo -u $ACTUAL_USER bash -c "cd $HOME_DIR/ipcr-ewers && node create-admin.js"
-rm $HOME_DIR/ipcr-ewers/create-admin.js
+sudo -u $ACTUAL_USER bash -c "cd $HOME_DIR/$APP_DIR && npm run db:seed" || echo -e "${YELLOW}Admin may already exist. Default: admin/admin123${NC}"
 
 # Install and configure Nginx if requested
 if [[ "$INSTALL_NGINX" == "y" || "$INSTALL_NGINX" == "Y" ]]; then
   echo -e "\n${YELLOW}Installing and configuring Nginx...${NC}"
   apt install -y nginx
   
-  # Create Nginx configuration
-  cat > /etc/nginx/sites-available/ipcr-ewers << EOL
+  # Create Nginx configuration with WebSocket support
+  cat > /etc/nginx/sites-available/ewers << 'NGINXEOF'
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen 80;
     server_name _;
-    
+
+    client_max_body_size 50M;
+
+    proxy_buffer_size 128k;
+    proxy_buffers 4 256k;
+    proxy_busy_buffers_size 256k;
+    proxy_temp_file_write_size 256k;
+
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
+
     location / {
-        proxy_pass http://localhost:$APP_PORT;
+        proxy_pass http://127.0.0.1:APPPORT;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    location /socket.io/ {
+        proxy_pass http://127.0.0.1:APPPORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
     }
 }
-EOL
+NGINXEOF
+
+  # Substitute the actual port into the config
+  sed -i "s/APPPORT/$APP_PORT/g" /etc/nginx/sites-available/ewers
   
   # Enable site
-  ln -sf /etc/nginx/sites-available/ipcr-ewers /etc/nginx/sites-enabled/
+  ln -sf /etc/nginx/sites-available/ewers /etc/nginx/sites-enabled/
   
   # Check configuration
   nginx -t
@@ -350,17 +337,17 @@ fi
 
 # Start application with PM2
 echo -e "\n${YELLOW}Starting application with PM2...${NC}"
-cd $HOME_DIR/ipcr-ewers
-sudo -u $ACTUAL_USER bash -c "cd $HOME_DIR/ipcr-ewers && pm2 start npm --name 'ipcr-app' -- start"
+cd $HOME_DIR/$APP_DIR
+sudo -u $ACTUAL_USER bash -c "cd $HOME_DIR/$APP_DIR && pm2 start npm --name 'ewers-app' -- start"
 
 # Setup PM2 to start on boot
-pm2_startup=$(sudo -u $ACTUAL_USER bash -c "pm2 startup systemd -u $ACTUAL_USER --hp $HOME_DIR | tail -n 1")
-eval "$pm2_startup"
+pm2_startup=$(sudo -u $ACTUAL_USER bash -c "pm2 startup systemd -u $ACTUAL_USER --hp $HOME_DIR 2>/dev/null | tail -n 1")
+eval "$pm2_startup" 2>/dev/null || true
 sudo -u $ACTUAL_USER bash -c "pm2 save"
 
 # Create uninstall script
 echo -e "\n${YELLOW}Creating uninstall script...${NC}"
-cat > $HOME_DIR/uninstall-ipcr.sh << EOL
+cat > $HOME_DIR/uninstall-ewers.sh << EOL
 #!/bin/bash
 
 # ANSI colors
@@ -392,14 +379,14 @@ DB_USER="$DB_USER"
 
 # Stop PM2 app
 echo -e "\${YELLOW}Stopping application...\${NC}"
-sudo -u \$ACTUAL_USER bash -c "pm2 delete ipcr-app"
+sudo -u \$ACTUAL_USER bash -c "pm2 delete ewers-app 2>/dev/null" || true
 sudo -u \$ACTUAL_USER bash -c "pm2 save"
 
 # Remove Nginx configuration
-if [ -f /etc/nginx/sites-enabled/ipcr-ewers ]; then
+if [ -f /etc/nginx/sites-enabled/ewers ]; then
   echo -e "\${YELLOW}Removing Nginx configuration...\${NC}"
-  rm -f /etc/nginx/sites-enabled/ipcr-ewers
-  rm -f /etc/nginx/sites-available/ipcr-ewers
+  rm -f /etc/nginx/sites-enabled/ewers
+  rm -f /etc/nginx/sites-available/ewers
   systemctl restart nginx
 fi
 
@@ -419,13 +406,13 @@ fi
 
 # Remove application directory
 echo -e "\${YELLOW}Removing application files...\${NC}"
-rm -rf "\$HOME_DIR/ipcr-ewers"
+rm -rf "\$HOME_DIR/ewers-w2"
 
 echo -e "\${GREEN}Uninstallation completed successfully!\${NC}"
 EOL
 
-chmod +x $HOME_DIR/uninstall-ipcr.sh
-chown $ACTUAL_USER:$ACTUAL_USER $HOME_DIR/uninstall-ipcr.sh
+chmod +x $HOME_DIR/uninstall-ewers.sh
+chown $ACTUAL_USER:$ACTUAL_USER $HOME_DIR/uninstall-ewers.sh
 
 # Display information
 echo -e "\n${GREEN}====================================================${NC}"
@@ -449,13 +436,13 @@ echo -e "Username: $ADMIN_USERNAME"
 echo -e "Password: $ADMIN_PASSWORD"
 
 echo -e "\n${YELLOW}Application logs can be viewed with:${NC}"
-echo -e "sudo -u $ACTUAL_USER bash -c 'pm2 logs ipcr-app'"
+echo -e "sudo -u $ACTUAL_USER bash -c 'pm2 logs ewers-app'"
 
 echo -e "\n${YELLOW}To restart the application:${NC}"
-echo -e "sudo -u $ACTUAL_USER bash -c 'pm2 restart ipcr-app'"
+echo -e "sudo -u $ACTUAL_USER bash -c 'pm2 restart ewers-app'"
 
 echo -e "\n${YELLOW}To uninstall the application:${NC}"
-echo -e "sudo $HOME_DIR/uninstall-ipcr.sh"
+echo -e "sudo $HOME_DIR/uninstall-ewers.sh"
 
 echo -e "\n${GREEN}Deployment completed successfully!${NC}"
 

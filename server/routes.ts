@@ -102,6 +102,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const io = new SocketIOServer(httpServer, {
     path: "/socket.io",
     cors: { origin: "*" },
+    transports: ["polling", "websocket"],
+    allowUpgrades: true,
+    pingTimeout: 60000,
+    pingInterval: 25000,
   });
 
   // Online user presence tracking
