@@ -88,11 +88,12 @@ export default function AnalysisPage() {
     { name: 'Other', value: 5 },
   ];
 
-  // Sample severity distribution data
+  // Sample severity distribution data: Low=Green, Medium=Grey, High=Blue, Critical=Red
   const severityData = [
-    { name: 'High', value: 25, color: '#D32F2F' },
-    { name: 'Medium', value: 45, color: '#F57C00' },
-    { name: 'Low', value: 30, color: '#2E7D32' },
+    { name: 'Critical', value: 10, color: '#ef4444' },
+    { name: 'High', value: 25, color: '#3b82f6' },
+    { name: 'Medium', value: 45, color: '#6b7280' },
+    { name: 'Low', value: 30, color: '#22c55e' },
   ];
 
   // Sample regional comparison data
@@ -253,6 +254,9 @@ export default function AnalysisPage() {
                         fill="#8884d8"
                         dataKey="value"
                         label={({name, percent}) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                        isAnimationActive={true}
+                        animationDuration={800}
+                        animationBegin={0}
                       >
                         {severityData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />

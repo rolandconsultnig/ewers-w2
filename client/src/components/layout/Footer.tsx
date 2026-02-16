@@ -1,24 +1,27 @@
 import { Link } from "wouter";
+import { useI18n } from "@/contexts/I18nContext";
 
 export default function Footer() {
+  const { t } = useI18n();
+
   return (
-    <footer className="bg-white border-t border-neutral-200 py-4 px-6">
-      <div className="flex flex-col md:flex-row justify-between items-center text-sm text-neutral-500">
+    <footer className="bg-gradient-to-r from-green-800 to-green-700 border-t border-red-600/30 py-4 px-6">
+      <div className="flex flex-col md:flex-row justify-between items-center text-sm text-white/80">
         <div className="flex flex-col items-center md:items-start">
-          <div>© {new Date().getFullYear()} Early Warning & Early Response System</div>
+          <div>© {new Date().getFullYear()} {t("layout.footer.system")}</div>
           <div className="mt-1 text-xs">
-            Designed by <a href="https://afrinict.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary-light">afrinict.com</a>
+            {t("layout.footer.designedBy")} <a href="https://afrinict.com" target="_blank" rel="noopener noreferrer" className="text-white hover:text-white/90 underline underline-offset-4">afrinict.com</a>
           </div>
         </div>
         <div className="mt-4 md:mt-0">
           <Link href="#">
-            <a className="text-primary hover:text-primary-light mr-4">Privacy Policy</a>
+            <a className="text-white hover:text-white/90 mr-4 underline underline-offset-4">{t("layout.footer.privacy")}</a>
           </Link>
           <Link href="#">
-            <a className="text-primary hover:text-primary-light mr-4">Terms of Service</a>
+            <a className="text-white hover:text-white/90 mr-4 underline underline-offset-4">{t("layout.footer.terms")}</a>
           </Link>
           <Link href="#">
-            <a className="text-primary hover:text-primary-light">Help Center</a>
+            <a className="text-white hover:text-white/90 underline underline-offset-4">{t("layout.footer.help")}</a>
           </Link>
         </div>
       </div>

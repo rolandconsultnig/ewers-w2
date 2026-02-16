@@ -1,12 +1,7 @@
 import { db } from "../db";
-import { 
-  incidents, 
-  riskIndicators, 
-  riskAnalyses, 
-  alerts,
-  insertRiskAnalysisSchema
-} from "@shared/schema";
-import { and, eq, gte, lte, desc, ne } from "drizzle-orm";
+import { incidents, riskIndicators, riskAnalyses, alerts } from "@shared/schema";
+import { and, eq, gte, desc, ne } from "drizzle-orm";
+import { analyzeCrisisWithGPT } from "./ai-services";
 
 /**
  * Analysis Service
@@ -17,9 +12,22 @@ import { and, eq, gte, lte, desc, ne } from "drizzle-orm";
 export class AnalysisService {
   
   /**
-   * Generate risk analysis based on incidents and risk indicators
+   * Generate risk analysis - uses OpenAI GPT when configured, else rule-based
    */
   async generateRiskAnalysis(region: string, location?: string) {
+    const gptResult = await analyzeCrisisWithGPT(region, location);
+    if (gptResult.success && gptResult.data) {
+      return {
+        success: true,
+        data: {
+          ...gptResult.data,
+          region: gptResult.data.region || region,
+          location: gptResult.data.location || location || region,
+          createdBy: 1,
+        },
+      };
+    }
+
     try {
       // Get relevant incidents
       const activeIncidents = await db.select().from(incidents)

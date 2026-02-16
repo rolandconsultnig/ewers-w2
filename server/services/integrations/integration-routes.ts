@@ -2,6 +2,7 @@ import { Express, Request, Response } from 'express';
 import { integrationServices } from './index';
 import { z } from 'zod';
 import { insertUserSchema } from '@shared/schema';
+import * as smsLogsService from '../sms-logs-service';
 
 /**
  * Register integration-related API routes
@@ -47,6 +48,18 @@ export function registerIntegrationRoutes(app: Express): void {
       }
       
       const result = await integrationServices.twilio.sendSMS(validation.data);
+      try {
+        const user = req.user as { id?: number } | undefined;
+        await smsLogsService.logSmsSend({
+          recipient: validation.data.to,
+          message: validation.data.body,
+          status: result.success ? 'delivered' : 'failed',
+          externalId: result.messageId,
+          sentBy: user?.id,
+        });
+      } catch (logErr) {
+        console.warn("SMS log failed (table may not exist):", logErr);
+      }
       res.status(result.success ? 200 : 400).json(result);
     } catch (error: any) {
       res.status(500).json({ error: error.message || 'Failed to send SMS' });

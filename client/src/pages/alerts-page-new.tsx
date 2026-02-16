@@ -96,6 +96,17 @@ export default function AlertsPage() {
     queryKey: ['/api/alerts/active'],
   });
 
+  const { data: slaStatus } = useQuery({
+    queryKey: selectedAlert ? [`/api/enterprise/sla/${selectedAlert.id}`] : ['none'],
+    queryFn: async () => {
+      if (!selectedAlert) return null;
+      const res = await fetch(`/api/enterprise/sla/${selectedAlert.id}`, { credentials: 'include' });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!selectedAlert && respondDialogOpen,
+  });
+
   // Format date for display
   const formatDate = (dateString: Date | string | null) => {
     if (!dateString) return 'N/A';
@@ -832,6 +843,16 @@ export default function AlertsPage() {
                             Region: {selectedAlert.region || 'Nigeria'}
                           </Badge>
                         </div>
+                        {slaStatus && (
+                          <div className="mt-3 rounded-md bg-slate-50 p-3 text-sm">
+                            <p className="font-medium">SLA Status</p>
+                            <p className="text-muted-foreground">
+                              {slaStatus.breached ? 'Breached' : 'Within SLA'} • 
+                              Elapsed: {slaStatus.elapsedMinutes ?? 0} min
+                              {slaStatus.slaMinutes != null && ` / ${slaStatus.slaMinutes} min`}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

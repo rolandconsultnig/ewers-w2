@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,7 +15,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { FileText, Upload, Database, Radio, Users, RefreshCw, Shield, AlertTriangle, MessageCircle, UserCheck, BadgeCheck, BarChart3, MapIcon, Table, Plus, Pencil } from "lucide-react";
+import { FileText, Upload, Database, Radio, Users, RefreshCw, Shield, AlertTriangle, MessageCircle, UserCheck, BadgeCheck, BarChart3, MapIcon, Table, Plus, Pencil, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -32,6 +32,7 @@ const incidentSchema = insertIncidentSchema
     severity: z.enum(["low", "medium", "high"], {
       required_error: "Please select a severity level",
     }),
+    sourceId: z.coerce.number().optional(),
     actorType: z.enum(["state", "non-state"], {
       required_error: "Please select an actor type",
     }),
@@ -69,6 +70,7 @@ type DataSourceFormValues = z.infer<typeof dataSourceSchema>;
 export default function DataCollectionPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [seedingNews, setSeedingNews] = useState(false);
   
   // State for data sources
   const [configureDialogOpen, setConfigureDialogOpen] = useState(false);
@@ -79,6 +81,8 @@ export default function DataCollectionPage() {
     region: "Nigeria",
   });
   const [refetchLoading, setRefetchLoading] = useState(false);
+  const [recentImports, setRecentImports] = useState<{ filename: string; imported: number; errors: number }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Data source form
   const sourceForm = useForm<DataSourceFormValues>({
@@ -197,6 +201,7 @@ export default function DataCollectionPage() {
       description: "",
       location: "",
       severity: undefined,
+      sourceId: undefined,
       actorType: undefined,
       actorName: "",
     },
@@ -211,6 +216,7 @@ export default function DataCollectionPage() {
         status: "active",
         region: "Nigeria",
         category: "conflict",
+        sourceId: data.sourceId,
         locationMetadata: {
           coordinates: data.location,
           region: "Nigeria"
@@ -245,6 +251,63 @@ export default function DataCollectionPage() {
   function onSubmit(data: IncidentFormValues) {
     reportIncidentMutation.mutate(data);
   }
+
+  const fileImportMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/data-collection/import", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Import failed");
+      }
+      return res.json();
+    },
+    onSuccess: (data, file) => {
+      setRecentImports((prev) => [{ filename: file.name, imported: data.imported, errors: data.errors }, ...prev.slice(0, 4)]);
+      queryClient.invalidateQueries({ queryKey: ["/api/data-sources"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/collected-data/status"] });
+      toast({
+        title: "File Imported",
+        description: data.message || `Imported ${data.imported} records`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Import Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      if (ext !== "csv" && ext !== "json") {
+        toast({ title: "Unsupported format", description: "Use CSV or JSON files.", variant: "destructive" });
+        return;
+      }
+      fileImportMutation.mutate(file);
+    }
+    e.target.value = "";
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      if (ext !== "csv" && ext !== "json") {
+        toast({ title: "Unsupported format", description: "Use CSV or JSON files.", variant: "destructive" });
+        return;
+      }
+      fileImportMutation.mutate(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
 
   // Handle refreshing data sources
   const handleRefresh = async () => {
@@ -399,7 +462,50 @@ export default function DataCollectionPage() {
       }
     }
   };
-  
+
+  const seedNewsSources = async () => {
+    setSeedingNews(true);
+    try {
+      const res = await apiRequest("POST", "/api/admin/seed-news-sources", {});
+      const data = await res.json();
+      toast({
+        title: "News Sources Seeded",
+        description: `Successfully added ${data.count} Nigerian news sources. Total: ${data.total}`,
+      });
+      refetchSources();
+    } catch (error) {
+      toast({
+        title: "Failed to seed news sources",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSeedingNews(false);
+    }
+  };
+
+  const [availableNews, setAvailableNews] = useState<any>(null);
+  const fetchAvailableNews = async () => {
+    try {
+      const res = await apiRequest("GET", "/api/admin/available-news-sources");
+      const data = await res.json();
+      setAvailableNews(data);
+      toast({ title: "Available sources loaded" });
+    } catch (e) {
+      toast({ title: "Failed", description: e instanceof Error ? e.message : "Unknown", variant: "destructive" });
+    }
+  };
+  const refreshNewsSources = async () => {
+    try {
+      const res = await apiRequest("PUT", "/api/admin/refresh-news-sources");
+      const data = await res.json();
+      toast({ title: "News sources refreshed", description: `${data.count} sources updated` });
+      refetchSources();
+    } catch (e) {
+      toast({ title: "Failed", description: e instanceof Error ? e.message : "Unknown", variant: "destructive" });
+    }
+  };
+
   return (
     <MainLayout title="Data Collection">
       {/* Data Source Configuration Dialog */}
@@ -649,6 +755,27 @@ export default function DataCollectionPage() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      {availableNews && (
+        <Dialog open={!!availableNews} onOpenChange={() => setAvailableNews(null)}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Available News Sources</DialogTitle>
+              <DialogDescription>
+                {availableNews.available} available to seed, {availableNews.existing} already exist
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-64 overflow-y-auto space-y-2">
+              {availableNews.sources?.map((s: any, i: number) => (
+                <div key={i} className="text-sm p-2 border rounded">
+                  <span className="font-medium">{s.name}</span>
+                  <span className="text-muted-foreground ml-2">({s.type})</span>
+                </div>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
       
       <div className="max-w-6xl mx-auto">
         <Tabs defaultValue="manual" className="w-full">
@@ -747,6 +874,38 @@ export default function DataCollectionPage() {
                           )}
                         />
                       </div>
+
+                      <FormField
+                        control={form.control}
+                        name="sourceId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Source (Optional)</FormLabel>
+                            <Select
+                              onValueChange={(value) => {
+                                if (value === "none") field.onChange(undefined);
+                                else field.onChange(parseInt(value));
+                              }}
+                              defaultValue={field.value != null ? String(field.value) : "none"}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select source (optional)" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="none">None</SelectItem>
+                                {(sources || []).map((s) => (
+                                  <SelectItem key={s.id} value={String(s.id)}>
+                                    {s.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <FormField
@@ -851,24 +1010,52 @@ export default function DataCollectionPage() {
                 <CardHeader>
                   <CardTitle>Upload Data Files</CardTitle>
                   <CardDescription>
-                    Import structured data from files (CSV, JSON, Excel)
+                    Import structured data from files (CSV, JSON)
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col items-center justify-center p-8">
-                  <div className="border-2 border-dashed border-neutral-200 rounded-lg p-8 text-center w-full">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv,.json"
+                    className="hidden"
+                    onChange={handleFileSelect}
+                  />
+                  <div
+                    className="border-2 border-dashed border-neutral-200 rounded-lg p-8 text-center w-full cursor-pointer hover:border-primary/50 hover:bg-accent/5 transition-colors"
+                    onDrop={handleDrop}
+                    onDragOver={handleDragOver}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
                     <Upload className="h-12 w-12 text-neutral-400 mx-auto mb-4" />
                     <h3 className="text-lg font-medium mb-2">Drag & Drop Files Here</h3>
                     <p className="text-neutral-500 text-sm mb-6">or</p>
-                    <Button>Browse Files</Button>
+                    <Button type="button" disabled={fileImportMutation.isPending}>
+                      {fileImportMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : null}
+                      Browse Files
+                    </Button>
                     <p className="text-neutral-400 text-xs mt-4">
-                      Supported formats: CSV, JSON, Excel, XML
+                      Supported formats: CSV, JSON (first row = headers for CSV)
                     </p>
                   </div>
                   
                   <div className="w-full mt-6">
                     <h4 className="text-sm font-medium mb-2">Recent Uploads</h4>
-                    <div className="border rounded p-4 text-sm text-neutral-500">
-                      No recent uploads found
+                    <div className="border rounded p-4 text-sm">
+                      {recentImports.length === 0 ? (
+                        <span className="text-neutral-500">No recent uploads</span>
+                      ) : (
+                        <ul className="space-y-2">
+                          {recentImports.map((r, i) => (
+                            <li key={i} className="flex justify-between">
+                              <span>{r.filename}</span>
+                              <span>{r.imported} imported{r.errors > 0 ? ` (${r.errors} errors)` : ""}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -898,8 +1085,8 @@ export default function DataCollectionPage() {
                         </div>
                         
                         <div className="flex items-center p-3 border rounded-md">
-                          <div className="h-8 w-8 flex items-center justify-center bg-amber-100 text-amber-700 rounded-full mr-4">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"></path><path d="M8 2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-3"></path><path d="M18 10a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"></path><path d="M10 2v4"></path><path d="M2 10h4"></path><path d="M5 18l2-2"></path></svg>
+                          <div className="h-8 w-8 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mr-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"></path><path d="M8 2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-3"></path><path d="M18 10a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"></path><path d="M10 2v4"></path><path d="M2 10h4"></path><path d="M5 18l2-2"></path></svg>
                           </div>
                           <div className="flex-1">
                             <h4 className="font-medium">Displacement Assessment</h4>
@@ -909,8 +1096,8 @@ export default function DataCollectionPage() {
                         </div>
                         
                         <div className="flex items-center p-3 border rounded-md">
-                          <div className="h-8 w-8 flex items-center justify-center bg-blue-100 text-blue-700 rounded-full mr-4">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 18 6-6"></path><path d="m21 6-6 6"></path><path d="M3 6h.01"></path><path d="M15 6h.01"></path><path d="M9 6h.01"></path><path d="M21 18h.01"></path><path d="M15 18h.01"></path><path d="M9 18h.01"></path><path d="M21 12h.01"></path><path d="M3 12h.01"></path></svg>
+                          <div className="h-8 w-8 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center mr-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
                           </div>
                           <div className="flex-1">
                             <h4 className="font-medium">Conflict Incident Report</h4>
@@ -1132,23 +1319,42 @@ export default function DataCollectionPage() {
                       Monitor the health and activity of your data connections
                     </CardDescription>
                   </div>
-                  <Button 
-                    onClick={fetchFromAllSources}
-                    disabled={fetchingData}
-                    className="ml-2"
-                  >
-                    {fetchingData ? (
+                  <div className="flex gap-2">
+                    {user?.role === "admin" && (
                       <>
-                        <span className="animate-spin mr-2">⊝</span>
-                        Collecting...
-                      </>
-                    ) : (
-                      <>
-                        <Database className="h-4 w-4 mr-2" />
-                        Collect Now
+                        <Button 
+                          variant="outline"
+                          onClick={seedNewsSources}
+                          disabled={seedingNews}
+                        >
+                          <Radio className="h-4 w-4 mr-2" />
+                          {seedingNews ? "Seeding..." : "Seed News Sources"}
+                        </Button>
+                        <Button variant="outline" onClick={fetchAvailableNews}>
+                          Available Sources
+                        </Button>
+                        <Button variant="outline" onClick={refreshNewsSources}>
+                          Refresh Sources
+                        </Button>
                       </>
                     )}
-                  </Button>
+                    <Button 
+                      onClick={fetchFromAllSources}
+                      disabled={fetchingData}
+                    >
+                      {fetchingData ? (
+                        <>
+                          <span className="animate-spin mr-2">⊝</span>
+                          Collecting...
+                        </>
+                      ) : (
+                        <>
+                          <Database className="h-4 w-4 mr-2" />
+                          Collect Now
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {/* Data Processing Status */}

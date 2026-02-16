@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -13,6 +13,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 // Import the IPCR logo
 import ipcr_logo from "@assets/Institute-For-Peace-And-Conflict-Resolution.jpg";
 
+const LOGIN_FORM_KEY = "ewer_login_draft";
+
 const loginSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   password: z.string().min(6, "Password must be at least 6 characters"),
@@ -20,19 +22,46 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
+function getStoredDraft(): Partial<LoginFormData> {
+  try {
+    const s = sessionStorage.getItem(LOGIN_FORM_KEY);
+    return s ? JSON.parse(s) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveDraft(data: Partial<LoginFormData>) {
+  try {
+    sessionStorage.setItem(LOGIN_FORM_KEY, JSON.stringify(data));
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function AuthPage() {
   const [location, navigate] = useLocation();
-  const { user, loginMutation } = useAuth();
+  const { user, isLoading, loginMutation } = useAuth();
+  const hasRedirected = useRef(false);
 
   const loginForm = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      username: "",
-      password: "",
+      username: getStoredDraft().username ?? "",
+      password: getStoredDraft().password ?? "",
     },
   });
 
+  // Persist form values on unmount so they survive remounts
+  useEffect(() => {
+    return () => {
+      const v = loginForm.getValues();
+      if (v.username || v.password) saveDraft(v);
+    };
+  }, [loginForm]);
+
   const onLoginSubmit = async (data: LoginFormData) => {
+    sessionStorage.removeItem(LOGIN_FORM_KEY);
     loginMutation.mutate(data, {
       onSuccess: () => {
         navigate("/dashboard");
@@ -40,12 +69,18 @@ export default function AuthPage() {
     });
   };
 
-  // Using useEffect for navigation to avoid react warnings about setState during render
-  React.useEffect(() => {
-    if (user) {
-      navigate("/dashboard");
-    }
-  }, [user, navigate]);
+  // Reset redirect guard when user logs out
+  useEffect(() => {
+    if (!user) hasRedirected.current = false;
+  }, [user]);
+
+  // Redirect to dashboard only when logged in - run once per user, avoid loops
+  useEffect(() => {
+    if (isLoading || !user || location !== "/auth") return;
+    if (hasRedirected.current) return;
+    hasRedirected.current = true;
+    navigate("/dashboard", { replace: true });
+  }, [user, isLoading, location, navigate]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 to-white flex items-center justify-center p-4">
@@ -130,9 +165,9 @@ export default function AuthPage() {
                   )}
                 />
                 <div className="text-right">
-                  <a href="#" className="text-sm text-blue-600 hover:text-blue-800">
+                  <Link href="/forgot-password" className="text-sm text-blue-600 hover:text-blue-800">
                     Forgot password?
-                  </a>
+                  </Link>
                 </div>
                 <Button 
                   type="submit" 

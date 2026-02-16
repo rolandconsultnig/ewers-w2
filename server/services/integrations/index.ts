@@ -2,6 +2,7 @@ import { twilioService } from './twilio-service';
 import { twitterService } from './twitter-service';
 import { facebookService } from './facebook-service';
 import { instagramService } from './instagram-service';
+import { tiktokService } from './tiktok-service';
 
 /**
  * Social Media and Communication Integration Services
@@ -16,6 +17,7 @@ export const integrationServices = {
   twitter: twitterService,  // X/Twitter integration
   facebook: facebookService,
   instagram: instagramService,
+  tiktok: tiktokService,
 
   /**
    * Check status of all integration services
@@ -25,8 +27,9 @@ export const integrationServices = {
     return {
       twilio: twilioService.verifyConfiguration(),
       twitter: twitterService.verifyConfiguration(),
-      facebook: facebookService.verifyConfiguration(), 
-      instagram: instagramService.verifyConfiguration()
+      facebook: facebookService.verifyConfiguration(),
+      instagram: instagramService.verifyConfiguration(),
+      tiktok: tiktokService.verifyConfiguration(),
     };
   }
 };

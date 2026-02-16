@@ -2,15 +2,54 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import PageTemplate from "@/components/modules/PageTemplate";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FileText, BarChart3, Award, Calendar, FileIcon, Table2 } from "lucide-react";
+import { FileText, BarChart3, Award, Calendar, FileIcon, Table2, Download, Printer } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+async function downloadReport(format: "csv" | "json", days: number) {
+  const res = await fetch(`/api/enterprise/export/report?format=${format}&days=${days}`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Export failed");
+  const blob = format === "json"
+    ? new Blob([JSON.stringify(await res.json(), null, 2)], { type: "application/json" })
+    : await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `ewer-report-${new Date().toISOString().slice(0, 10)}.${format}`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export default function ReportingPage() {
   const [activeTab, setActiveTab] = useState("standard");
-  
+  const [exportDays, setExportDays] = useState("30");
+  const [exporting, setExporting] = useState(false);
+  const { toast } = useToast();
+
+  const handleExport = async (format: "csv" | "json") => {
+    setExporting(true);
+    try {
+      await downloadReport(format, parseInt(exportDays));
+      toast({ title: `Report exported as ${format.toUpperCase()}` });
+    } catch {
+      toast({ title: "Export failed", variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const toolbar = (
     <>
       <Button variant="outline">
@@ -199,7 +238,9 @@ export default function ReportingPage() {
                         <p className="text-xs text-muted-foreground">Comprehensive monthly security analysis</p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm">Generate</Button>
+                    <Button variant="outline" size="sm" onClick={() => handleExport("csv")} disabled={exporting}>
+                      {exporting ? "..." : "Generate"}
+                    </Button>
                   </div>
                   
                   <div className="flex items-center justify-between">
@@ -207,10 +248,12 @@ export default function ReportingPage() {
                       <Table2 className="h-5 w-5 text-green-600 mr-3" />
                       <div>
                         <h4 className="text-sm font-medium">Incident Statistics</h4>
-                        <p className="text-xs text-muted-foreground">Detailed incident data export</p>
+                        <p className="text-xs text-muted-foreground">Detailed incident data export (CSV/Excel)</p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm">Generate</Button>
+                    <Button variant="outline" size="sm" onClick={() => handleExport("csv")} disabled={exporting}>
+                      {exporting ? "..." : "Export CSV"}
+                    </Button>
                   </div>
                   
                   <div className="flex items-center justify-between">
@@ -221,7 +264,9 @@ export default function ReportingPage() {
                         <p className="text-xs text-muted-foreground">Risk analysis by Nigerian region</p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm">Generate</Button>
+                    <Button variant="outline" size="sm" onClick={() => handleExport("csv")} disabled={exporting}>
+                      {exporting ? "..." : "Export CSV"}
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -324,20 +369,54 @@ export default function ReportingPage() {
         <TabsContent value="export" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>PDF/Excel Report Export</CardTitle>
+              <CardTitle>Report Export & Delivery</CardTitle>
               <CardDescription>
-                Export and schedule report delivery
+                Export executive reports as CSV (Excel-compatible) or JSON. Use Print to save as PDF.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-center p-6 text-center">
-                <div>
-                  <Calendar className="h-20 w-20 text-blue-400 mx-auto mb-4 opacity-70" />
-                  <h3 className="text-lg font-medium">Report Delivery Module</h3>
-                  <p className="text-muted-foreground mt-2 max-w-md mx-auto">
-                    This module will support PDF/Excel export functionality, scheduled report delivery, and multi-recipient distribution options.
-                  </p>
+              <div className="space-y-6">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Period:</span>
+                    <Select value={exportDays} onValueChange={setExportDays}>
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="7">7 days</SelectItem>
+                        <SelectItem value="30">30 days</SelectItem>
+                        <SelectItem value="90">90 days</SelectItem>
+                        <SelectItem value="365">1 year</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    onClick={() => handleExport("csv")}
+                    disabled={exporting}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Export CSV (Excel)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleExport("json")}
+                    disabled={exporting}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Export JSON
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => window.print()}
+                  >
+                    <Printer className="h-4 w-4 mr-2" />
+                    Print / Save as PDF
+                  </Button>
                 </div>
+                <p className="text-sm text-muted-foreground">
+                  CSV includes KPIs, regional heat map, and trend data. JSON includes full structured data. Use your browser&apos;s Print dialog to save the current page as PDF.
+                </p>
               </div>
             </CardContent>
           </Card>

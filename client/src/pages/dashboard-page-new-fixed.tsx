@@ -101,6 +101,7 @@ export default function DashboardPage() {
   
   // Compute incident statistics
   const incidentCounts = {
+    critical: incidents?.filter(i => i.severity === 'critical').length || 0,
     high: incidents?.filter(i => i.severity === 'high').length || 0,
     medium: incidents?.filter(i => i.severity === 'medium').length || 0,
     low: incidents?.filter(i => i.severity === 'low').length || 0,
@@ -359,6 +360,23 @@ export default function DashboardPage() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center">
                           <div className="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
+                          <span className="text-sm">Critical</span>
+                        </div>
+                        <span className="text-sm font-medium">
+                          {incidentCounts.critical}
+                        </span>
+                      </div>
+                      <Progress 
+                        value={incidentCounts.total > 0 ? 
+                          (incidentCounts.critical / incidentCounts.total) * 100 : 0} 
+                        className="h-2 bg-red-100" 
+                        indicatorClassName="bg-red-500"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <div className="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
                           <span className="text-sm">High</span>
                         </div>
                         <span className="text-sm font-medium">
@@ -368,14 +386,15 @@ export default function DashboardPage() {
                       <Progress 
                         value={incidentCounts.total > 0 ? 
                           (incidentCounts.high / incidentCounts.total) * 100 : 0} 
-                        className="h-2 bg-red-100" 
+                        className="h-2 bg-blue-100" 
+                        indicatorClassName="bg-blue-500"
                       />
                     </div>
                     
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center">
-                          <div className="w-3 h-3 rounded-full bg-amber-500 mr-2"></div>
+                          <div className="w-3 h-3 rounded-full bg-gray-500 mr-2"></div>
                           <span className="text-sm">Medium</span>
                         </div>
                         <span className="text-sm font-medium">
@@ -385,14 +404,15 @@ export default function DashboardPage() {
                       <Progress 
                         value={incidentCounts.total > 0 ? 
                           (incidentCounts.medium / incidentCounts.total) * 100 : 0} 
-                        className="h-2 bg-amber-100" 
+                        className="h-2 bg-gray-100" 
+                        indicatorClassName="bg-gray-500"
                       />
                     </div>
                     
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center">
-                          <div className="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
+                          <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
                           <span className="text-sm">Low</span>
                         </div>
                         <span className="text-sm font-medium">
@@ -402,7 +422,8 @@ export default function DashboardPage() {
                       <Progress 
                         value={incidentCounts.total > 0 ? 
                           (incidentCounts.low / incidentCounts.total) * 100 : 0}
-                        className="h-2 bg-blue-100" 
+                        className="h-2 bg-green-100" 
+                        indicatorClassName="bg-green-500"
                       />
                     </div>
                   </div>

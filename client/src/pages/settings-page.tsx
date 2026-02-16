@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -12,11 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useI18n } from "@/contexts/I18nContext";
 import { 
   Settings, 
   User, 
@@ -36,7 +38,9 @@ import {
   UserCog,
   RefreshCw,
   Smartphone,
-  Radio
+  Radio,
+  TrendingUp,
+  ClipboardCheck
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
@@ -76,10 +80,99 @@ type SecurityFormValues = z.infer<typeof securityFormSchema>;
 type NotificationValues = z.infer<typeof notificationSchema>;
 type SystemSettingsValues = z.infer<typeof systemSettingsSchema>;
 
+type NotificationRuleEvent = "incident_created" | "alert_created";
+
+type NotificationRule = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  event: NotificationRuleEvent;
+  conditions?: {
+    severityIn?: string[];
+    regionIn?: string[];
+    categoryIn?: string[];
+    sourceIn?: string[];
+    escalationLevelGte?: number;
+  };
+  actions: {
+    notifyRoles?: string[];
+    notifyUserIds?: number[];
+    notificationType?: "info" | "warning" | "critical" | "crisis";
+    titleTemplate?: string;
+    messageTemplate?: string;
+  };
+};
+
+function parseCsv(value: string): string[] {
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function parseNumberCsv(value: string): number[] {
+  return value
+    .split(",")
+    .map((s) => parseInt(s.trim()))
+    .filter((n) => !Number.isNaN(n));
+}
+
+function toCsv(arr?: (string | number)[] | null): string {
+  if (!arr || arr.length === 0) return "";
+  return arr.join(", ");
+}
+
 export default function SettingsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("profile");
+  const { language, setLanguage, t } = useI18n();
+
+  const isAdmin = Boolean(user && ((user as any).securityLevel >= 5 || user.role === "admin"));
+
+  const { data: notificationRules = [], isLoading: isLoadingNotificationRules } = useQuery<NotificationRule[]>({
+    queryKey: ["/api/notification-rules"],
+    enabled: isAdmin,
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/notification-rules");
+      if (!res.ok) {
+        if (res.status === 401) throw new Error("Unauthorized");
+        if (res.status === 403) throw new Error("Forbidden");
+        throw new Error("Failed to fetch notification rules");
+      }
+      return res.json();
+    },
+  });
+
+  const saveNotificationRulesMutation = useMutation({
+    mutationFn: async (rules: NotificationRule[]) => {
+      const res = await apiRequest("PUT", "/api/notification-rules", rules);
+      if (!res.ok) {
+        if (res.status === 401) throw new Error("Unauthorized");
+        if (res.status === 403) throw new Error("Forbidden");
+        throw new Error("Failed to save notification rules");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notification-rules"] });
+      toast({ title: "Notification rules saved" });
+    },
+    onError: (err: any) => {
+      const message = typeof err?.message === "string" ? err.message : "Failed to save notification rules";
+      toast({ title: "Save failed", description: message, variant: "destructive" });
+    },
+  });
+
+  const notificationRulesSaveTimerRef = useRef<number | null>(null);
+  const scheduleSaveNotificationRules = (rules: NotificationRule[]) => {
+    if (notificationRulesSaveTimerRef.current) {
+      window.clearTimeout(notificationRulesSaveTimerRef.current);
+    }
+    notificationRulesSaveTimerRef.current = window.setTimeout(() => {
+      saveNotificationRulesMutation.mutate(rules);
+    }, 600);
+  };
   
   // Profile form
   const profileForm = useForm<ProfileFormValues>({
@@ -117,7 +210,7 @@ export default function SettingsPage() {
   const systemSettingsForm = useForm<SystemSettingsValues>({
     resolver: zodResolver(systemSettingsSchema),
     defaultValues: {
-      language: "en",
+      language,
       theme: "light",
       dataRetention: "30",
       mapProvider: "leaflet",
@@ -363,6 +456,254 @@ export default function SettingsPage() {
                       </div>
                     </form>
                   </Form>
+
+                  {isAdmin ? (
+                    <div className="mt-8">
+                      <Separator />
+                      <div className="mt-6 space-y-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <h3 className="text-lg font-medium">Notification Rules (Admin)</h3>
+                            <p className="text-sm text-muted-foreground">
+                              These rules control who gets notified when incidents/alerts are created.
+                            </p>
+                          </div>
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              const newRule: NotificationRule = {
+                                id: String(Date.now()),
+                                name: "New rule",
+                                enabled: true,
+                                event: "incident_created",
+                                conditions: {},
+                                actions: { notificationType: "warning", notifyRoles: ["admin"] },
+                              };
+                              scheduleSaveNotificationRules([...(notificationRules ?? []), newRule]);
+                            }}
+                            disabled={saveNotificationRulesMutation.isPending}
+                          >
+                            Add Rule
+                          </Button>
+                        </div>
+
+                        {isLoadingNotificationRules ? (
+                          <div className="text-sm text-muted-foreground">Loading rules…</div>
+                        ) : notificationRules.length === 0 ? (
+                          <div className="text-sm text-muted-foreground">No rules configured. Default behavior notifies admins.</div>
+                        ) : (
+                          <div className="space-y-4">
+                            {notificationRules.map((rule, idx) => (
+                              <Card key={rule.id}>
+                                <CardHeader className="pb-3">
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <Input
+                                          value={rule.name}
+                                          onChange={(e) => {
+                                            const copy = [...notificationRules];
+                                            copy[idx] = { ...rule, name: e.target.value };
+                                            scheduleSaveNotificationRules(copy);
+                                          }}
+                                        />
+                                        <Badge variant="outline">{rule.event}</Badge>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-2">
+                                          <div className="text-sm">Enabled</div>
+                                          <Switch
+                                            checked={rule.enabled}
+                                            onCheckedChange={(v) => {
+                                              const copy = [...notificationRules];
+                                              copy[idx] = { ...rule, enabled: v };
+                                              scheduleSaveNotificationRules(copy);
+                                            }}
+                                          />
+                                        </div>
+                                        <Select
+                                          value={rule.event}
+                                          onValueChange={(v) => {
+                                            const copy = [...notificationRules];
+                                            copy[idx] = { ...rule, event: v as NotificationRuleEvent };
+                                            scheduleSaveNotificationRules(copy);
+                                          }}
+                                        >
+                                          <SelectTrigger className="h-8 w-[220px]">
+                                            <SelectValue placeholder="Event" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="incident_created">incident_created</SelectItem>
+                                            <SelectItem value="alert_created">alert_created</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                    </div>
+                                    <Button
+                                      variant="ghost"
+                                      onClick={() => {
+                                        const copy = notificationRules.filter((r) => r.id !== rule.id);
+                                        scheduleSaveNotificationRules(copy);
+                                      }}
+                                      disabled={saveNotificationRulesMutation.isPending}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                      <div className="text-sm font-medium">Severity (comma-separated)</div>
+                                      <Input
+                                        value={toCsv(rule.conditions?.severityIn)}
+                                        placeholder="low, medium, high, critical"
+                                        onBlur={(e) => {
+                                          const copy = [...notificationRules];
+                                          copy[idx] = {
+                                            ...rule,
+                                            conditions: { ...(rule.conditions ?? {}), severityIn: parseCsv(e.target.value) },
+                                          };
+                                          scheduleSaveNotificationRules(copy);
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                      <div className="text-sm font-medium">Region (comma-separated)</div>
+                                      <Input
+                                        value={toCsv(rule.conditions?.regionIn)}
+                                        placeholder="Nigeria, North Central"
+                                        onBlur={(e) => {
+                                          const copy = [...notificationRules];
+                                          copy[idx] = {
+                                            ...rule,
+                                            conditions: { ...(rule.conditions ?? {}), regionIn: parseCsv(e.target.value) },
+                                          };
+                                          scheduleSaveNotificationRules(copy);
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                      <div className="text-sm font-medium">Notify roles (comma-separated)</div>
+                                      <Input
+                                        value={toCsv(rule.actions?.notifyRoles)}
+                                        placeholder="admin, manager"
+                                        onBlur={(e) => {
+                                          const copy = [...notificationRules];
+                                          copy[idx] = {
+                                            ...rule,
+                                            actions: { ...(rule.actions ?? {}), notifyRoles: parseCsv(e.target.value) },
+                                          };
+                                          scheduleSaveNotificationRules(copy);
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                      <div className="text-sm font-medium">Notify user IDs (comma-separated)</div>
+                                      <Input
+                                        value={toCsv(rule.actions?.notifyUserIds)}
+                                        placeholder="1, 2, 3"
+                                        onBlur={(e) => {
+                                          const copy = [...notificationRules];
+                                          copy[idx] = {
+                                            ...rule,
+                                            actions: { ...(rule.actions ?? {}), notifyUserIds: parseNumberCsv(e.target.value) },
+                                          };
+                                          scheduleSaveNotificationRules(copy);
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                      <div className="text-sm font-medium">Notification type</div>
+                                      <Select
+                                        value={rule.actions?.notificationType ?? "warning"}
+                                        onValueChange={(v) => {
+                                          const copy = [...notificationRules];
+                                          copy[idx] = {
+                                            ...rule,
+                                            actions: { ...(rule.actions ?? {}), notificationType: v as any },
+                                          };
+                                          scheduleSaveNotificationRules(copy);
+                                        }}
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue placeholder="Type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="info">info</SelectItem>
+                                          <SelectItem value="warning">warning</SelectItem>
+                                          <SelectItem value="critical">critical</SelectItem>
+                                          <SelectItem value="crisis">crisis</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <div className="text-sm font-medium">Escalation level ≥</div>
+                                      <Input
+                                        type="number"
+                                        defaultValue={rule.conditions?.escalationLevelGte ?? ""}
+                                        onBlur={(e) => {
+                                          const raw = e.target.value;
+                                          const n = raw === "" ? undefined : parseInt(raw);
+                                          const copy = [...notificationRules];
+                                          copy[idx] = {
+                                            ...rule,
+                                            conditions: {
+                                              ...(rule.conditions ?? {}),
+                                              escalationLevelGte: typeof n === "number" && !Number.isNaN(n) ? n : undefined,
+                                            },
+                                          };
+                                          scheduleSaveNotificationRules(copy);
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <div className="text-sm font-medium">Title template</div>
+                                    <Input
+                                      value={rule.actions?.titleTemplate ?? ""}
+                                      placeholder="e.g. {{incidentTitle}}"
+                                      onChange={(e) => {
+                                        const copy = [...notificationRules];
+                                        copy[idx] = {
+                                          ...rule,
+                                          actions: { ...(rule.actions ?? {}), titleTemplate: e.target.value },
+                                        };
+                                        scheduleSaveNotificationRules(copy);
+                                      }}
+                                    />
+                                  </div>
+
+                                  <div className="space-y-2">
+                                    <div className="text-sm font-medium">Message template</div>
+                                    <Textarea
+                                      value={rule.actions?.messageTemplate ?? ""}
+                                      placeholder="e.g. {{incidentDescription}}"
+                                      onChange={(e) => {
+                                        const copy = [...notificationRules];
+                                        copy[idx] = {
+                                          ...rule,
+                                          actions: { ...(rule.actions ?? {}), messageTemplate: e.target.value },
+                                        };
+                                        scheduleSaveNotificationRules(copy);
+                                      }}
+                                    />
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
                 </CardContent>
               </Card>
             )}
@@ -669,8 +1010,8 @@ export default function SettingsPage() {
             {activeTab === "system" && (
               <Card>
                 <CardHeader>
-                  <CardTitle>System Settings</CardTitle>
-                  <CardDescription>Configure global system preferences</CardDescription>
+                  <CardTitle>{t("settings.system.title")}</CardTitle>
+                  <CardDescription>{t("settings.system.description")}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Form {...systemSettingsForm}>
@@ -680,26 +1021,28 @@ export default function SettingsPage() {
                         name="language"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Language</FormLabel>
+                            <FormLabel>{t("settings.system.language")}</FormLabel>
                             <Select 
-                              onValueChange={field.onChange} 
+                              onValueChange={(value) => {
+                                field.onChange(value);
+                                if (value === "en" || value === "ig" || value === "ha" || value === "yo") setLanguage(value);
+                              }}
                               defaultValue={field.value}
                             >
                               <FormControl>
                                 <SelectTrigger>
-                                  <SelectValue placeholder="Select a language" />
+                                  <SelectValue placeholder={t("settings.system.languagePlaceholder")} />
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                <SelectItem value="en">English</SelectItem>
-                                <SelectItem value="fr">French</SelectItem>
-                                <SelectItem value="es">Spanish</SelectItem>
-                                <SelectItem value="ar">Arabic</SelectItem>
-                                <SelectItem value="zh">Chinese</SelectItem>
+                                <SelectItem value="en">{t("language.english")}</SelectItem>
+                                <SelectItem value="ig">{t("language.igbo")}</SelectItem>
+                                <SelectItem value="ha">{t("language.hausa")}</SelectItem>
+                                <SelectItem value="yo">{t("language.yoruba")}</SelectItem>
                               </SelectContent>
                             </Select>
                             <FormDescription>
-                              The language used throughout the system interface
+                              {t("settings.system.languageHelp")}
                             </FormDescription>
                             <FormMessage />
                           </FormItem>

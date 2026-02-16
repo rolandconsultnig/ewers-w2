@@ -1,12 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Circle, useMapEvents } from 'react-leaflet';
+import React, { useEffect, useMemo, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Circle, useMapEvents, LayersControl } from 'react-leaflet';
 import { Incident } from '@shared/schema';
-import { useQuery } from '@tanstack/react-query';
+import { MAP_LAYERS, DEFAULT_LAYER_ID } from '@/lib/map-layers';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, Info, AlertCircle, MapPin, Users } from 'lucide-react';
+import { AlertTriangle, Info, AlertCircle, MapPin, Users, Pin } from 'lucide-react';
+import { apiRequest, queryClient } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
 
 // Fix Leaflet marker icon issues
 // Using CDNs that are more reliable with larger icon sizes for better visibility
@@ -51,6 +54,17 @@ const lowSeverityIcon = new L.Icon({
   popupAnchor: [1, -40],
   shadowSize: [45, 45],
   className: 'low-severity-marker' // Add class for potential CSS targeting
+});
+
+// Pinned incident icon (gold/yellow marker)
+const pinnedIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [38, 62],  // Larger size for pinned items
+  iconAnchor: [19, 62],
+  popupAnchor: [1, -55],
+  shadowSize: [50, 50],
+  className: 'pinned-marker' // Add class for potential CSS targeting
 });
 
 // Nigeria map bounds to restrict panning
@@ -281,6 +295,7 @@ export default function NigeriaMap({
   const [clickedPosition, setClickedPosition] = useState<[number, number] | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  const { toast } = useToast();
   
   // Ensure map stability by tracking when it's fully loaded
   useEffect(() => {
@@ -326,16 +341,73 @@ export default function NigeriaMap({
   
   // Fetch incidents from API if none provided as props
   const { data: fetchedIncidents } = useQuery<Incident[]>({
-    queryKey: ["/api/incidents"],
+    queryKey: ["/api/public/incidents"],
     enabled: showIncidents && !propIncidents && mapReady,
+    queryFn: async () => {
+      // Prefer authenticated incidents endpoint if available, fall back to public.
+      const res = await fetch("/api/incidents", { credentials: "include" });
+      if (res.ok) return res.json();
+      const publicRes = await fetch("/api/public/incidents", { credentials: "include" });
+      if (!publicRes.ok) throw new Error("Failed to fetch incidents");
+      return publicRes.json();
+    },
   });
-  
+
   // Use provided incidents or fetched incidents or mock data
   // Only use mock incidents after map is ready to ensure they don't disappear
-  const incidents = mapReady ? (propIncidents || fetchedIncidents || mockIncidents) : [];
+  const incidents: Array<Incident | MockIncident> = mapReady
+    ? ((propIncidents as unknown as Array<Incident | MockIncident>) || fetchedIncidents || mockIncidents)
+    : [];
+
+  const incidentPinnedMap = useMemo(() => {
+    const map = new Map<number, boolean>();
+    incidents.forEach((i) => {
+      const id = (i as any)?.id;
+      if (typeof id === "number") map.set(id, Boolean((i as any)?.isPinned));
+    });
+    return map;
+  }, [incidents]);
+
+  const togglePinMutation = useMutation({
+    mutationFn: async ({ incidentId, isPinned }: { incidentId: number; isPinned: boolean }) => {
+      const res = await apiRequest("PATCH", `/api/incidents/${incidentId}/pin`, { isPinned });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/public/incidents"] });
+    },
+    onError: (err: any) => {
+      const message = typeof err?.message === "string" ? err.message : "Failed to update pin status";
+      if (message.toLowerCase().includes("401")) {
+        toast({
+          title: "Login required",
+          description: "Please sign in to pin or unpin incidents.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Pin update failed",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleTogglePin = (incidentId: number) => {
+    const current = incidentPinnedMap.get(incidentId) ?? false;
+    togglePinMutation.mutate({ incidentId, isPinned: !current });
+  };
   
-  // Get icon based on severity
-  const getIncidentIcon = (severity: string) => {
+  // Get icon based on severity and pinned status
+  const getIncidentIcon = (severity: string, isPinned?: boolean) => {
+    // Pinned incidents get special gold marker
+    if (isPinned) {
+      return pinnedIcon;
+    }
+    
     switch (severity.toLowerCase()) {
       case 'high':
         return highSeverityIcon;
@@ -347,7 +419,7 @@ export default function NigeriaMap({
         return defaultIcon;
     }
   };
-  
+
   // Handle map click for adding incident
   const handleMapClick = (e: L.LeafletMouseEvent) => {
     if (!showAddIncidentButton) return;
@@ -397,18 +469,22 @@ export default function NigeriaMap({
         if (coords && (typeof coords === 'object')) {
           // If coords has lat/lng properties
           if (coords.lat !== undefined && coords.lng !== undefined) {
-            return [parseFloat(coords.lat), parseFloat(coords.lng)];
+            const lat = parseFloat(coords.lat);
+            const lng = parseFloat(coords.lng);
+            if (!isNaN(lat) && !isNaN(lng) && !(lat === 0 && lng === 0)) return [lat, lng];
           }
           // If coords has latitude/longitude properties
           else if (coords.latitude !== undefined && coords.longitude !== undefined) {
-            return [parseFloat(coords.latitude), parseFloat(coords.longitude)];
+            const lat = parseFloat(coords.latitude);
+            const lng = parseFloat(coords.longitude);
+            if (!isNaN(lat) && !isNaN(lng) && !(lat === 0 && lng === 0)) return [lat, lng];
           }
           // If coords is an array [lat, lng]
           else if (Array.isArray(coords) && coords.length >= 2) {
             const lat = parseFloat(coords[0]);
             const lng = parseFloat(coords[1]);
             if (!isNaN(lat) && !isNaN(lng)) {
-              return [lat, lng];
+              if (!(lat === 0 && lng === 0)) return [lat, lng];
             }
           }
         }
@@ -486,11 +562,24 @@ export default function NigeriaMap({
         doubleClickZoom={true}
         whenReady={() => console.log("Map is ready")}
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        
+        <LayersControl position="topright" collapsed={false}>
+          {MAP_LAYERS.map((layer) => (
+            <LayersControl.BaseLayer
+              key={layer.id}
+              name={layer.name}
+              checked={layer.id === DEFAULT_LAYER_ID}
+            >
+              <TileLayer
+                attribution={layer.attribution}
+                url={layer.url}
+                maxZoom={layer.maxZoom}
+                minZoom={layer.minZoom}
+                {...(layer.subdomains && { subdomains: layer.subdomains })}
+              />
+            </LayersControl.BaseLayer>
+          ))}
+        </LayersControl>
+
         <SetBoundsRectangles />
         
         {/* Map click handler */}
@@ -499,14 +588,15 @@ export default function NigeriaMap({
         )}
         
         {/* Display incidents on the map */}
-        {showIncidents && incidents?.map((incident) => {
+        {showIncidents && incidents?.map((incident: Incident | MockIncident) => {
           const [lat, lng] = getCoordinates(incident);
+          const isPinned = incidentPinnedMap.get((incident as any).id) ?? Boolean((incident as any).isPinned);
           
           return (
             <Marker 
               key={incident.id}
               position={[lat, lng]}
-              icon={getIncidentIcon(incident.severity)}
+              icon={getIncidentIcon(incident.severity, isPinned)}
             >
               <Popup className="custom-popup" maxWidth={300}>
                 <div className="p-2">
@@ -566,8 +656,14 @@ export default function NigeriaMap({
                     <Button className="flex-1 text-xs h-7" variant="default">
                       View Details
                     </Button>
-                    <Button className="flex-1 text-xs h-7" variant="outline">
-                      Response Plan
+                    <Button 
+                      className="text-xs h-7 px-2" 
+                      variant={isPinned ? "default" : "outline"}
+                      title={isPinned ? "Unpin incident" : "Pin incident"}
+                      onClick={() => handleTogglePin(incident.id)}
+                      disabled={togglePinMutation.isPending}
+                    >
+                      <Pin className="h-3 w-3" />
                     </Button>
                   </div>
                 </div>
@@ -609,7 +705,7 @@ export default function NigeriaMap({
         )}
         
         {/* Show risk heatmap for Nigeria */}
-        {showIncidents && incidents?.filter(i => i.severity === 'high').map((incident, idx) => {
+        {showIncidents && incidents?.filter((i: Incident | MockIncident) => i.severity === 'high').map((incident: Incident | MockIncident, idx: number) => {
           const [lat, lng] = getCoordinates(incident);
           
           return (

@@ -1,11 +1,16 @@
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
-import { Express } from "express";
+import { Strategy as JwtStrategy, ExtractJwt } from "passport-jwt";
+import express, { Express } from "express";
 import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
+import jwt from "jsonwebtoken";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
+import { db } from "./db";
+import { passwordResetTokens } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 declare global {
   namespace Express {
@@ -14,6 +19,39 @@ declare global {
 }
 
 const scryptAsync = promisify(scrypt);
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "ewers-jwt-secret";
+const JWT_EXPIRES = process.env.JWT_EXPIRES || "7d";
+
+export function generateJWT(user: SelectUser): string {
+  return jwt.sign(
+    { id: user.id, username: user.username, role: user.role, securityLevel: user.securityLevel },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES }
+  );
+}
+
+export function verifyJWT(token: string): { id: number; username: string; role: string; securityLevel: number } | null {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { id: number; username: string; role: string; securityLevel: number };
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+// RBAC: Super Admin (7), Supervisor (5+), Field Agent (1-4)
+export function requireRole(allowedRoles: string[], minSecurityLevel?: number) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const user = req.user as SelectUser | undefined;
+    if (!user) return res.status(401).json({ error: "Authentication required" });
+    const hasRole = allowedRoles.includes(user.role) || (user.role === "admin" && allowedRoles.includes("super_admin"));
+    const hasLevel = minSecurityLevel == null || user.securityLevel >= minSecurityLevel;
+    if (!hasRole || !hasLevel) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    next();
+  };
+}
 
 async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -45,10 +83,34 @@ export function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
+  // JWT auth fallback - if no session user, try Bearer token
+  app.use(async (req, res, next) => {
+    if (req.user) return next();
+    const auth = req.headers.authorization;
+    const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+    if (token) {
+      const payload = verifyJWT(token);
+      if (payload) {
+        const user = await storage.getUser(payload.id);
+        if (user && user.active !== false) req.user = user;
+      }
+    }
+    next();
+  });
+
+  // Ensure isAuthenticated works for both session and JWT (req.user presence)
+  app.use((req, _res, next) => {
+    const orig = req.isAuthenticated.bind(req);
+    (req as any).isAuthenticated = function (): boolean {
+      return !!req.user || orig();
+    };
+    next();
+  });
+
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       const user = await storage.getUserByUsername(username);
-      if (!user || !(await comparePasswords(password, user.password))) {
+      if (!user || user.active === false || !(await comparePasswords(password, user.password))) {
         return done(null, false);
       } else {
         return done(null, user);
@@ -59,8 +121,23 @@ export function setupAuth(app: Express) {
   passport.serializeUser((user, done) => done(null, user.id));
   passport.deserializeUser(async (id: number, done) => {
     const user = await storage.getUser(id);
+    if (user && user.active === false) return done(null, false);
     done(null, user);
   });
+
+  // JWT strategy - supports Authorization: Bearer <token>
+  passport.use(
+    new JwtStrategy(
+      {
+        jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+        secretOrKey: JWT_SECRET,
+      },
+      async (payload: { id: number }, done) => {
+        const user = await storage.getUser(payload.id);
+        done(null, user || false);
+      }
+    )
+  );
 
   app.post("/api/register", async (req, res, next) => {
     const existingUser = await storage.getUserByUsername(req.body.username);
@@ -107,8 +184,51 @@ export function setupAuth(app: Express) {
     }
   });
 
+  // Admin: reset a user's password (hashed)
+  app.post("/api/users/:id/reset-password", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const currentUser = req.user as SelectUser;
+    if (currentUser.securityLevel < 5 && currentUser.role !== "admin") {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid user id" });
+
+    const { newPassword } = req.body as { newPassword?: string };
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters" });
+    }
+
+    const user = await storage.getUser(id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    try {
+      const hashed = await hashPassword(newPassword);
+      const updated = await storage.updateUser(id, { password: hashed });
+      res.json({ ok: true, user: { ...updated, password: undefined } });
+    } catch (error) {
+      console.error("Failed to reset password:", error);
+      res.status(500).json({ error: "Failed to reset password" });
+    }
+  });
+
   app.post("/api/login", passport.authenticate("local"), (req, res) => {
-    res.status(200).json(req.user);
+    const user = req.user as SelectUser;
+    const token = generateJWT(user);
+    res.status(200).json({ user, token });
+  });
+
+  app.post("/api/auth/login", passport.authenticate("local"), (req, res) => {
+    const user = req.user as SelectUser;
+    const token = generateJWT(user);
+    res.status(200).json({ user, token });
+  });
+
+  app.post("/api/auth/jwt", passport.authenticate("local", { session: false }), (req, res) => {
+    const user = req.user as SelectUser;
+    const token = generateJWT(user);
+    res.status(200).json({ token, expiresIn: JWT_EXPIRES });
   });
 
   app.post("/api/logout", (req, res, next) => {
@@ -118,9 +238,48 @@ export function setupAuth(app: Express) {
     });
   });
 
+  app.post("/api/auth/logout", (req, res, next) => {
+    req.logout((err) => {
+      if (err) return next(err);
+      res.sendStatus(200);
+    });
+  });
+
   app.get("/api/user", (req, res) => {
+    // Return 200 with null when not logged in (avoids 401 console noise on auth check)
+    if (!req.isAuthenticated()) return res.status(200).json(null);
+    res.json(req.user);
+  });
+
+  // API auth aliases
+  app.get("/api/auth/me", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(200).json(null);
+    res.json(req.user);
+  });
+
+  // Profile management - update own profile
+  app.get("/api/user/profile", (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     res.json(req.user);
+  });
+
+  app.put("/api/user/profile", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const currentUser = req.user as SelectUser;
+    const { password, username, role, securityLevel, ...allowed } = req.body;
+    const updateData: Partial<SelectUser> = {
+      fullName: allowed.fullName,
+      department: allowed.department,
+      position: allowed.position,
+      phoneNumber: allowed.phoneNumber,
+      email: allowed.email,
+      avatar: allowed.avatar,
+    };
+    if (password && password.length >= 6) {
+      updateData.password = await hashPassword(password);
+    }
+    const updated = await storage.updateUser(currentUser.id, updateData);
+    res.json(updated);
   });
 
   app.get("/api/user/all", async (req, res) => {
@@ -137,6 +296,83 @@ export function setupAuth(app: Express) {
       res.json(users);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch users" });
+    }
+  });
+
+  // Forgot password - request reset link
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email, username } = req.body;
+      const identifier = email || username;
+      if (!identifier) {
+        return res.status(400).json({ error: "Email or username is required" });
+      }
+
+      let user: SelectUser | undefined;
+      if (identifier.includes("@")) {
+        user = await storage.getUserByEmail(identifier);
+      } else {
+        user = await storage.getUserByUsername(identifier);
+      }
+
+      if (!user) {
+        return res.status(200).json({ message: "If an account exists, a reset link has been sent" });
+      }
+
+      if (!user.email) {
+        return res.status(400).json({ error: "No email on file. Contact your administrator." });
+      }
+
+      const token = randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+      await db.insert(passwordResetTokens).values({
+        userId: user.id,
+        token,
+        expiresAt,
+      });
+
+      const baseUrl = process.env.BASE_URL || req.protocol + "://" + req.get("host");
+      const resetUrl = `${baseUrl}/reset-password?token=${token}`;
+
+      const { sendTemplatedEmail } = await import("./services/email-service");
+      await sendTemplatedEmail("password_reset", user.email, {
+        resetUrl,
+        appName: "IPCR Early Alert Network",
+      });
+
+      res.status(200).json({ message: "If an account exists, a reset link has been sent" });
+    } catch (error) {
+      console.error("Forgot password error:", error);
+      res.status(500).json({ error: "Failed to process request" });
+    }
+  });
+
+  // Reset password - with token
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, newPassword } = req.body;
+      if (!token || !newPassword || newPassword.length < 6) {
+        return res.status(400).json({ error: "Valid token and password (min 6 characters) required" });
+      }
+
+      const [resetRow] = await db
+        .select()
+        .from(passwordResetTokens)
+        .where(eq(passwordResetTokens.token, token));
+
+      if (!resetRow || new Date(resetRow.expiresAt) < new Date()) {
+        return res.status(400).json({ error: "Invalid or expired reset link" });
+      }
+
+      const hashedPassword = await hashPassword(newPassword);
+      await storage.updateUser(resetRow.userId, { password: hashedPassword });
+      await db.delete(passwordResetTokens).where(eq(passwordResetTokens.id, resetRow.id));
+
+      res.status(200).json({ message: "Password reset successful" });
+    } catch (error) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ error: "Failed to reset password" });
     }
   });
 }

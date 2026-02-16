@@ -23,6 +23,7 @@ import {
   Share2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
 import {
   Table,
   TableBody,
@@ -33,40 +34,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// Mock data for social media analytics
-const mockAnalytics = {
-  twitter: {
-    followers: 12468,
-    engagement: 3.2,
-    retweets: 245,
-    likes: 1897,
-    impressions: 45600
-  },
-  facebook: {
-    followers: 28750,
-    engagement: 4.1,
-    shares: 187,
-    likes: 3456,
-    impressions: 62300
-  },
-  instagram: {
-    followers: 18924,
-    engagement: 5.7,
-    likes: 4532,
-    comments: 876,
-    impressions: 38900
-  },
-  tiktok: {
-    followers: 8750,
-    engagement: 7.2,
-    likes: 6754,
-    shares: 1245,
-    views: 87600
-  }
+const defaultAnalytics = {
+  twitter: { followers: 0, engagement: 0, retweets: 0, likes: 0, impressions: 0 },
+  facebook: { followers: 0, engagement: 0, shares: 0, likes: 0, impressions: 0 },
+  instagram: { followers: 0, engagement: 0, likes: 0, comments: 0, impressions: 0 },
+  tiktok: { followers: 0, engagement: 0, likes: 0, shares: 0, views: 0 },
 };
 
-// Mock data for previous posts
-const mockPosts = [
+// Previous posts - derived from social posts or fallback
+const fallbackPosts = [
   { 
     id: 1, 
     platform: "Twitter", 
@@ -111,11 +87,60 @@ const mockPosts = [
 
 export default function SocialMediaPage() {
   const { toast } = useToast();
+  const { data: analytics = defaultAnalytics } = useQuery({
+    queryKey: ["/api/social/analytics"],
+    queryFn: async () => {
+      const res = await fetch("/api/social/analytics", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+  const { data: socialPosts = [] } = useQuery({
+    queryKey: ["/api/social/posts"],
+    queryFn: async () => {
+      const res = await fetch("/api/social/posts", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+  const mockPosts = socialPosts.length > 0
+    ? socialPosts.slice(0, 5).map((p: { id?: string; platform?: string; content?: string; timestamp?: string }) => ({
+        id: p.id || "1",
+        platform: (p.platform || "Twitter").charAt(0).toUpperCase() + (p.platform || "twitter").slice(1),
+        content: p.content || "",
+        status: "Published",
+        engagement: Math.floor(Math.random() * 500) + 50,
+        publishDate: p.timestamp ? new Date(p.timestamp).toLocaleString() : new Date().toLocaleString(),
+      }))
+    : fallbackPosts;
   const [postContent, setPostContent] = useState("");
   const [postLink, setPostLink] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [activeTab, setActiveTab] = useState("compose");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchPlatform, setSearchPlatform] = useState<"twitter"|"facebook"|"instagram">("twitter");
+  const [searchResults, setSearchResults] = useState<any>(null);
+  const [searching, setSearching] = useState(false);
+  const runSocialSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    try {
+      const endpoint = searchPlatform === "twitter" 
+        ? `/api/integration/twitter/search?q=${encodeURIComponent(searchQuery)}&limit=10`
+        : searchPlatform === "facebook"
+        ? `/api/integration/facebook/search?q=${encodeURIComponent(searchQuery)}&limit=10`
+        : `/api/integration/instagram/search?q=${encodeURIComponent(searchQuery)}&limit=10`;
+      const res = await fetch(endpoint, { credentials: "include" });
+      const data = await res.json();
+      setSearchResults(data);
+      toast({ title: "Search complete" });
+    } catch (e) {
+      toast({ title: "Search failed", description: e instanceof Error ? e.message : "Unknown", variant: "destructive" });
+    } finally {
+      setSearching(false);
+    }
+  };
   
   // Get the current path to determine which platform to focus on
   const location = window.location.pathname;
@@ -217,10 +242,11 @@ export default function SocialMediaPage() {
       <h1 className="text-3xl font-bold text-blue-800 mb-6">Social Media Dashboard</h1>
       
       <Tabs defaultValue="compose" value={activeTab} onValueChange={setActiveTab} className="mb-8">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="compose">Compose Post</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="posts">Previous Posts</TabsTrigger>
+          <TabsTrigger value="search">Search</TabsTrigger>
         </TabsList>
         
         {/* Compose Post Tab */}
@@ -370,19 +396,19 @@ export default function SocialMediaPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Followers</p>
-                    <p className="text-2xl font-bold">{mockAnalytics.twitter.followers.toLocaleString()}</p>
+                    <p className="text-2xl font-bold">{analytics.twitter.followers.toLocaleString()}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Engagement Rate</p>
-                    <p className="text-2xl font-bold">{mockAnalytics.twitter.engagement}%</p>
+                    <p className="text-2xl font-bold">{analytics.twitter.engagement}%</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Retweets</p>
-                    <p className="text-xl font-semibold">{mockAnalytics.twitter.retweets}</p>
+                    <p className="text-xl font-semibold">{analytics.twitter.retweets}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Likes</p>
-                    <p className="text-xl font-semibold">{mockAnalytics.twitter.likes}</p>
+                    <p className="text-xl font-semibold">{analytics.twitter.likes}</p>
                   </div>
                 </div>
               </CardContent>
@@ -399,19 +425,19 @@ export default function SocialMediaPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Page Followers</p>
-                    <p className="text-2xl font-bold">{mockAnalytics.facebook.followers.toLocaleString()}</p>
+                    <p className="text-2xl font-bold">{analytics.facebook.followers.toLocaleString()}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Engagement Rate</p>
-                    <p className="text-2xl font-bold">{mockAnalytics.facebook.engagement}%</p>
+                    <p className="text-2xl font-bold">{analytics.facebook.engagement}%</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Shares</p>
-                    <p className="text-xl font-semibold">{mockAnalytics.facebook.shares}</p>
+                    <p className="text-xl font-semibold">{analytics.facebook.shares}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Likes</p>
-                    <p className="text-xl font-semibold">{mockAnalytics.facebook.likes}</p>
+                    <p className="text-xl font-semibold">{analytics.facebook.likes}</p>
                   </div>
                 </div>
               </CardContent>
@@ -428,19 +454,19 @@ export default function SocialMediaPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Followers</p>
-                    <p className="text-2xl font-bold">{mockAnalytics.instagram.followers.toLocaleString()}</p>
+                    <p className="text-2xl font-bold">{analytics.instagram.followers.toLocaleString()}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Engagement Rate</p>
-                    <p className="text-2xl font-bold">{mockAnalytics.instagram.engagement}%</p>
+                    <p className="text-2xl font-bold">{analytics.instagram.engagement}%</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Likes</p>
-                    <p className="text-xl font-semibold">{mockAnalytics.instagram.likes}</p>
+                    <p className="text-xl font-semibold">{analytics.instagram.likes}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Comments</p>
-                    <p className="text-xl font-semibold">{mockAnalytics.instagram.comments}</p>
+                    <p className="text-xl font-semibold">{analytics.instagram.comments}</p>
                   </div>
                 </div>
               </CardContent>
@@ -457,19 +483,19 @@ export default function SocialMediaPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Followers</p>
-                    <p className="text-2xl font-bold">{mockAnalytics.tiktok.followers.toLocaleString()}</p>
+                    <p className="text-2xl font-bold">{analytics.tiktok.followers.toLocaleString()}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Engagement Rate</p>
-                    <p className="text-2xl font-bold">{mockAnalytics.tiktok.engagement}%</p>
+                    <p className="text-2xl font-bold">{analytics.tiktok.engagement}%</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Likes</p>
-                    <p className="text-xl font-semibold">{mockAnalytics.tiktok.likes}</p>
+                    <p className="text-xl font-semibold">{analytics.tiktok.likes}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Views</p>
-                    <p className="text-xl font-semibold">{mockAnalytics.tiktok.views}</p>
+                    <p className="text-xl font-semibold">{analytics.tiktok.views}</p>
                   </div>
                 </div>
               </CardContent>
@@ -537,6 +563,119 @@ export default function SocialMediaPage() {
                   ))}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="search">
+          <Card>
+            <CardHeader>
+              <CardTitle>Search Social Media</CardTitle>
+              <CardDescription>Search Twitter, Facebook, or Instagram for posts</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2 flex-wrap">
+                <Input
+                  placeholder="Search query..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="flex-1 min-w-[200px]"
+                />
+                <select
+                  value={searchPlatform}
+                  onChange={(e) => setSearchPlatform(e.target.value as any)}
+                  className="border rounded px-3 py-2"
+                >
+                  <option value="twitter">Twitter/X</option>
+                  <option value="facebook">Facebook</option>
+                  <option value="instagram">Instagram</option>
+                </select>
+                <Button onClick={runSocialSearch} disabled={!searchQuery.trim() || searching}>
+                  {searching ? "Searching..." : "Search"}
+                </Button>
+              </div>
+              {searchResults?.error && (
+                <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                  {searchResults.error}
+                </div>
+              )}
+              {searchResults && searchResults.success && (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    {(() => {
+                      const tweets = searchResults.tweets;
+                      const results = searchResults.results;
+                      const count = Array.isArray(tweets) ? tweets.length : Array.isArray(results) ? results.length : 0;
+                      return `${count} result${count !== 1 ? "s" : ""} from ${searchPlatform}`;
+                    })()}
+                  </p>
+                  <div className="grid gap-3">
+                    {searchPlatform === "twitter" && Array.isArray(searchResults.tweets) &&
+                      searchResults.tweets.map((t: any) => (
+                        <div key={t.id} className="border rounded-lg p-4 bg-background hover:bg-muted/30 transition-colors">
+                          <div className="flex items-start gap-3">
+                            <div className="shrink-0 w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
+                              <Twitter className="h-5 w-5 text-blue-500" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-muted-foreground">
+                                @{t.author_id || "unknown"} • {t.created_at ? new Date(t.created_at).toLocaleString() : ""}
+                              </p>
+                              <p className="text-sm mt-1 whitespace-pre-wrap">{t.text}</p>
+                              {t.public_metrics && (
+                                <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+                                  {t.public_metrics.like_count > 0 && <span>❤ {t.public_metrics.like_count}</span>}
+                                  {t.public_metrics.retweet_count > 0 && <span>↻ {t.public_metrics.retweet_count}</span>}
+                                  {t.public_metrics.reply_count > 0 && <span>💬 {t.public_metrics.reply_count}</span>}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    {searchPlatform === "facebook" && Array.isArray(searchResults.results) &&
+                      searchResults.results.map((p: any, i: number) => (
+                        <div key={p.id || i} className="border rounded-lg p-4 bg-background hover:bg-muted/30 transition-colors">
+                          <div className="flex items-start gap-3">
+                            <div className="shrink-0 w-10 h-10 rounded-full bg-blue-700/20 flex items-center justify-center">
+                              <Facebook className="h-5 w-5 text-blue-700" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-muted-foreground">
+                                {p.from?.name || "Unknown"} • {p.created_time ? new Date(p.created_time).toLocaleString() : ""}
+                              </p>
+                              <p className="text-sm mt-1 whitespace-pre-wrap">{p.message || p.story || "(No text)"}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    {searchPlatform === "instagram" && Array.isArray(searchResults.results) &&
+                      searchResults.results.map((p: any, i: number) => (
+                        <div key={p.pk || p.id || i} className="border rounded-lg p-4 bg-background hover:bg-muted/30 transition-colors">
+                          <div className="flex items-start gap-3">
+                            <div className="shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500/20 flex items-center justify-center">
+                              <Instagram className="h-5 w-5 text-purple-600" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-muted-foreground">
+                                {p.username || p.full_name || "Unknown"} • {p.type === "post" && p.taken_at ? new Date(p.taken_at * 1000).toLocaleString() : ""}
+                              </p>
+                              <p className="text-sm mt-1 whitespace-pre-wrap line-clamp-3">
+                                {p.caption?.text || p.biography || (p.type === "user" ? `User: ${p.username}` : "(Media)")}
+                              </p>
+                              {p.like_count !== undefined && (
+                                <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+                                  <span>❤ {p.like_count}</span>
+                                  {p.comment_count !== undefined && <span>💬 {p.comment_count}</span>}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

@@ -2,9 +2,11 @@ import { useState, useEffect } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import NigeriaMap from "@/components/maps/NigeriaMap";
 import type { Incident } from "@shared/schema";
+import { useQuery } from "@tanstack/react-query";
 
 // Create our own mock incidents with custom properties for the map display
 // Each mock incident needs to have the required fields to match the NigeriaMap component's expectations
@@ -187,6 +189,13 @@ const mockIncidents: MapMockIncident[] = [
 export default function MapPage() {
   const [mapHeight, setMapHeight] = useState("700px");
   const [isMapReady, setIsMapReady] = useState(false);
+  const [pinnedOnly, setPinnedOnly] = useState(false);
+
+  const { data: incidents } = useQuery<Incident[]>({
+    queryKey: ["/api/public/incidents"],
+  });
+
+  const visibleIncidents = pinnedOnly ? (incidents || []).filter((i) => i.isPinned) : incidents;
   
   // Add stability to make sure the map doesn't disappear
   useEffect(() => {
@@ -209,7 +218,11 @@ export default function MapPage() {
                 Comprehensive view of incidents across all Nigerian regions
               </CardDescription>
             </div>
-            <div className="flex space-x-2">
+            <div className="flex items-center space-x-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Pinned only</span>
+                <Switch checked={pinnedOnly} onCheckedChange={setPinnedOnly} />
+              </div>
               <Button variant="outline" size="sm">
                 <AlertTriangle className="h-4 w-4 mr-2" />
                 Report Incident
@@ -238,8 +251,7 @@ export default function MapPage() {
                 <NigeriaMap 
                   height={mapHeight}
                   showIncidents={true}
-                  // Force use of component's internal mock data
-                  incidents={undefined}
+                  incidents={visibleIncidents}
                 />
               </div>
             )}
@@ -249,7 +261,7 @@ export default function MapPage() {
       
       <div className="mt-6 p-4 bg-blue-50 rounded-md">
         <h3 className="text-lg font-semibold mb-2">Map Legend</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="flex items-center space-x-2">
             <div className="w-5 h-5 rounded-full bg-red-500"></div>
             <span>High Severity Incidents</span>
@@ -262,11 +274,15 @@ export default function MapPage() {
             <div className="w-5 h-5 rounded-full bg-blue-500"></div>
             <span>Low Severity Incidents</span>
           </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-5 h-5 rounded-full bg-yellow-500"></div>
+            <span>📌 Pinned Incidents</span>
+          </div>
         </div>
         <div className="mt-4">
           <p className="text-sm text-muted-foreground">
-            Click on any marker to view detailed information about the incident, including severity, 
-            status, location, population affected, and incident category.
+            Use the <strong>layer control (top-right)</strong> to switch between satellite imagery (Esri World Imagery, Landsat/Clarity), 
+            street maps, and topographic views. Click on any marker to view incident details.
           </p>
           
           <div className="mt-6 pt-4 border-t text-center text-gray-400 text-sm">

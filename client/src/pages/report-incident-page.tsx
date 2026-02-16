@@ -7,6 +7,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { insertIncidentSchema } from "@shared/schema";
 import { Link } from "wouter";
+import { useI18n } from "@/contexts/I18nContext";
+import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 
 // Import components
 import { Button } from "@/components/ui/button";
@@ -15,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, FileText, MapPin, AlertTriangle, User } from "lucide-react";
+import { ArrowLeft, FileText, MapPin, AlertTriangle, User, Mic, MicOff } from "lucide-react";
 
 // Import the IPCR logo
 import ipcr_logo from "@assets/Institute-For-Peace-And-Conflict-Resolution.jpg";
@@ -26,6 +28,15 @@ const publicIncidentSchema = z.object({
   description: z.string().min(10, "Please provide a detailed description"),
   location: z.string().min(3, "Location must be at least 3 characters"),
   region: z.string().min(2, "Please select a region"),
+  category: z.enum([
+    "violence",
+    "protest",
+    "political",
+    "economic",
+    "natural_disaster",
+    "sgbv",
+    "conflict",
+  ]),
   actorType: z.enum(["state", "non-state"], {
     required_error: "Please select an actor type",
   }),
@@ -39,6 +50,7 @@ type PublicIncidentFormValues = z.infer<typeof publicIncidentSchema>;
 
 export default function ReportIncidentPage() {
   const { toast } = useToast();
+  const { language } = useI18n();
   
   // Initialize form
   const form = useForm<PublicIncidentFormValues>({
@@ -48,6 +60,7 @@ export default function ReportIncidentPage() {
       description: "",
       location: "",
       region: "North Central",
+      category: "conflict",
       actorType: undefined,
       actorName: "",
       contactName: "",
@@ -63,7 +76,7 @@ export default function ReportIncidentPage() {
       const incidentData = {
         ...data,
         status: "pending", // Incidents from public start as pending until verified
-        category: "conflict",
+        category: data.category,
         reportedAt: new Date().toISOString(),
         locationMetadata: {
           coordinates: data.location,
@@ -119,6 +132,22 @@ export default function ReportIncidentPage() {
     "South West",
     "Federal Capital Territory"
   ];
+
+  const recognitionLocale = React.useMemo(() => {
+    if (language === "ig") return "ig-NG";
+    if (language === "ha") return "ha-NG";
+    if (language === "yo") return "yo-NG";
+    return "en-NG";
+  }, [language]);
+
+  const speech = useSpeechRecognition({
+    lang: recognitionLocale,
+    onFinalResult: (text) => {
+      const current = form.getValues("description") ?? "";
+      const next = current ? `${current.trim()} ${text}` : text;
+      form.setValue("description", next, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+    },
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 to-white">
@@ -187,7 +216,20 @@ export default function ReportIncidentPage() {
                           name="description"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Description</FormLabel>
+                              <div className="flex items-center justify-between gap-3">
+                                <FormLabel>Description</FormLabel>
+                                <Button
+                                  type="button"
+                                  variant={speech.isListening ? "default" : "outline"}
+                                  size="sm"
+                                  onClick={() => (speech.isListening ? speech.stop() : speech.start())}
+                                  disabled={!speech.isSupported}
+                                  className="flex items-center gap-2"
+                                >
+                                  {speech.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                                  {speech.isListening ? "Stop" : "Voice"}
+                                </Button>
+                              </div>
                               <FormControl>
                                 <Textarea 
                                   placeholder="Provide details about what happened, who was involved, and the impact" 
@@ -198,6 +240,21 @@ export default function ReportIncidentPage() {
                               <FormDescription>
                                 Include details like time, number of people affected, and any immediate needs
                               </FormDescription>
+                              {speech.isListening && speech.interimTranscript && (
+                                <div className="text-sm text-muted-foreground">
+                                  {speech.interimTranscript}
+                                </div>
+                              )}
+                              {!speech.isSupported && (
+                                <div className="text-sm text-muted-foreground">
+                                  Voice dictation is not supported in this browser.
+                                </div>
+                              )}
+                              {!!speech.error && (
+                                <div className="text-sm text-destructive">
+                                  Voice input error: {speech.error}
+                                </div>
+                              )}
                               <FormMessage />
                             </FormItem>
                           )}
@@ -246,6 +303,33 @@ export default function ReportIncidentPage() {
                             )}
                           />
                         </div>
+
+                        <FormField
+                          control={form.control}
+                          name="category"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Type of Conflict/Incident</FormLabel>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select type" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="conflict">General Conflict</SelectItem>
+                                  <SelectItem value="violence">Violence</SelectItem>
+                                  <SelectItem value="sgbv">Sexual and Gender-Based Violence</SelectItem>
+                                  <SelectItem value="protest">Protest</SelectItem>
+                                  <SelectItem value="political">Political</SelectItem>
+                                  <SelectItem value="economic">Economic</SelectItem>
+                                  <SelectItem value="natural_disaster">Natural Disaster</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
 
                         <div className="pt-4">
                           <h3 className="text-lg font-medium flex items-center gap-2 mb-4">

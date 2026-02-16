@@ -82,8 +82,10 @@ import {
   Shield,
   ShieldCheck,
   X as XCircle,
-  Loader2
+  Loader2,
+  UserPlus
 } from "lucide-react";
+import { TeamMembersDialog } from "@/components/TeamMembersDialog";
 
 // Create a schema for response plan form
 const responsePlanFormSchema = insertResponsePlanSchema
@@ -117,6 +119,8 @@ export default function ResponsePlansPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<ResponsePlan | null>(null);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [teamMembersOpen, setTeamMembersOpen] = useState(false);
+  const [selectedTeamForMembers, setSelectedTeamForMembers] = useState<{ id: number; name: string } | null>(null);
   
   // Fetch response plans
   const { 
@@ -581,8 +585,48 @@ export default function ResponsePlansPage() {
               </div>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Response Teams</CardTitle>
+              <CardDescription>Manage team members</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {teams?.map((team) => (
+                  <div key={team.id} className="flex items-center justify-between p-2 rounded border">
+                    <span className="text-sm font-medium">{team.name}</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedTeamForMembers({ id: team.id, name: team.name });
+                        setTeamMembersOpen(true);
+                      }}
+                    >
+                      <UserPlus className="h-4 w-4 mr-1" />
+                      Members
+                    </Button>
+                  </div>
+                ))}
+                {(!teams || teams.length === 0) && (
+                  <p className="text-sm text-muted-foreground">No response teams</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
+
+      <TeamMembersDialog
+        teamId={selectedTeamForMembers?.id ?? null}
+        teamName={selectedTeamForMembers?.name ?? ""}
+        open={teamMembersOpen}
+        onOpenChange={(open) => {
+          setTeamMembersOpen(open);
+          if (!open) setSelectedTeamForMembers(null);
+        }}
+      />
       
       {/* Create Plan Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>

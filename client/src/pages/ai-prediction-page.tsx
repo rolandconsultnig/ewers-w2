@@ -35,19 +35,27 @@ export default function AiPredictionPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [startDate, setStartDate] = useState<Date | undefined>(new Date());
   const [showResults, setShowResults] = useState(false);
+  const [forecastData, setForecastData] = useState<Record<string, unknown> | null>(null);
   
-  const handleGenerateForecast = () => {
+  const handleGenerateForecast = async () => {
     setIsLoading(true);
-    
-    // Simulate API call with timeout
-    setTimeout(() => {
-      setIsLoading(false);
-      setShowResults(true);
-      toast({
-        title: "Forecast Generated",
-        description: "AI predictive model has generated a conflict forecast successfully.",
+    try {
+      const res = await fetch("/api/ai/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ region: selectedRegion, timeline: predictionTimeline }),
       });
-    }, 3000);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      setShowResults(true);
+      setForecastData(data);
+      toast({ title: "Forecast Generated", description: "AI predictive model has generated a conflict forecast successfully." });
+    } catch (e) {
+      toast({ title: "Forecast Failed", description: e instanceof Error ? e.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
   };
   
   const regionOptions = [

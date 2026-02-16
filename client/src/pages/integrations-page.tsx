@@ -51,7 +51,9 @@ import {
   AlertCircle,
   Settings,
   RocketIcon,
-  Clock
+  Clock,
+  Settings,
+  Key
 } from "lucide-react";
 import { SiTwilio, SiFacebook, SiInstagram, SiWhatsapp } from "react-icons/si";
 import { SiX } from "react-icons/si"; // Formerly Twitter, now X
@@ -65,6 +67,182 @@ const integrationTestSchema = z.object({
 });
 
 type IntegrationTest = z.infer<typeof integrationTestSchema>;
+
+const webhookEvents = ["alert_created", "incident_reported", "response_plan_activated"];
+
+function ApiKeysTab() {
+  const { toast } = useToast();
+  const [name, setName] = useState("");
+  const [permissions, setPermissions] = useState<string[]>(["read"]);
+  const { data: apiKeys = [], refetch } = useQuery({
+    queryKey: ["/api/integration/api-keys"],
+    queryFn: async () => {
+      const res = await fetch("/api/integration/api-keys", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/integration/api-keys", { name, permissions });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "API key created", description: `Key: ${data.key?.slice(0, 12)}... (copy now, it won't be shown again)` });
+      setName("");
+      refetch();
+    },
+    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/integration/api-keys/${id}`);
+    },
+    onSuccess: () => { toast({ title: "API key deleted" }); refetch(); },
+  });
+  const togglePerm = (p: string) => {
+    setPermissions((prev) => prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]);
+  };
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Key className="h-5 w-5" />
+          API Keys
+        </CardTitle>
+        <CardDescription>Create and manage API keys for external access</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="space-y-4">
+          <div>
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My API Key" />
+          </div>
+          <div>
+            <Label>Permissions</Label>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {["read", "write", "admin"].map((p) => (
+                <Button key={p} type="button" variant={permissions.includes(p) ? "default" : "outline"} size="sm" onClick={() => togglePerm(p)}>
+                  {p}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <Button onClick={() => createMutation.mutate()} disabled={!name || permissions.length === 0 || createMutation.isPending}>
+            Create API Key
+          </Button>
+        </div>
+        <div>
+          <h4 className="font-medium mb-2">Your API Keys</h4>
+          {apiKeys.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No API keys yet</p>
+          ) : (
+            <ul className="space-y-2">
+              {apiKeys.map((k: { id: number; name: string; key?: string; permissions: string[]; expiresAt?: string }) => (
+                <li key={k.id} className="flex items-center justify-between p-3 border rounded">
+                  <div>
+                    <span className="font-medium">{k.name}</span>
+                    <p className="text-xs text-muted-foreground">
+                      {k.key ? `${k.key.slice(0, 12)}...` : "••••••••••••"} • {k.permissions?.join(", ")}
+                    </p>
+                  </div>
+                  <Button variant="destructive" size="sm" onClick={() => deleteMutation.mutate(k.id)}>Delete</Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function WebhooksTab() {
+  const { toast } = useToast();
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [events, setEvents] = useState<string[]>([]);
+  const { data: webhooks = [], refetch } = useQuery({
+    queryKey: ["/api/integration/webhooks"],
+    queryFn: async () => {
+      const res = await fetch("/api/integration/webhooks", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/integration/webhooks", { name, url, events });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Webhook created" });
+      setName(""); setUrl(""); setEvents([]);
+      refetch();
+    },
+    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/integration/webhooks/${id}`);
+    },
+    onSuccess: () => { toast({ title: "Webhook deleted" }); refetch(); },
+  });
+  const toggleEvent = (e: string) => {
+    setEvents((prev) => prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]);
+  };
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Webhooks</CardTitle>
+        <CardDescription>Notify external systems when events occur</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="space-y-4">
+          <div>
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Webhook" />
+          </div>
+          <div>
+            <Label>URL</Label>
+            <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." />
+          </div>
+          <div>
+            <Label>Events</Label>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {webhookEvents.map((e) => (
+                <Button key={e} type="button" variant={events.includes(e) ? "default" : "outline"} size="sm" onClick={() => toggleEvent(e)}>
+                  {e.replace(/_/g, " ")}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <Button onClick={() => createMutation.mutate()} disabled={!name || !url || events.length === 0 || createMutation.isPending}>
+            Add Webhook
+          </Button>
+        </div>
+        <div>
+          <h4 className="font-medium mb-2">Configured Webhooks</h4>
+          {webhooks.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No webhooks yet</p>
+          ) : (
+            <ul className="space-y-2">
+              {webhooks.map((w: { id: number; name: string; url: string; events: string[] }) => (
+                <li key={w.id} className="flex items-center justify-between p-3 border rounded">
+                  <div>
+                    <span className="font-medium">{w.name}</span>
+                    <p className="text-xs text-muted-foreground">{w.url}</p>
+                  </div>
+                  <Button variant="destructive" size="sm" onClick={() => deleteMutation.mutate(w.id)}>Delete</Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 interface IntegrationStatus {
   configured: boolean;
@@ -237,6 +415,10 @@ export default function IntegrationsPage() {
           <TabsTrigger value="webhooks">
             <Globe className="h-4 w-4 mr-2" />
             Webhooks
+          </TabsTrigger>
+          <TabsTrigger value="api-keys">
+            <Settings className="h-4 w-4 mr-2" />
+            API Keys
           </TabsTrigger>
         </TabsList>
         
@@ -855,111 +1037,10 @@ export default function IntegrationsPage() {
         
         {/* Webhooks Tab */}
         <TabsContent value="webhooks">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center">
-                <Globe className="h-5 w-5 mr-2 text-primary" />
-                <CardTitle>Webhooks & API Integration</CardTitle>
-              </div>
-              <CardDescription>
-                Set up webhooks to notify external systems
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <p className="text-sm text-gray-600">
-                  Configure webhooks to automatically notify external systems when alerts are triggered.
-                  This allows you to integrate with other emergency response systems, government portals,
-                  and partner organizations.
-                </p>
-                
-                <div className="p-4 bg-gray-50 rounded-md border border-gray-200">
-                  <h3 className="font-medium mb-2">Coming Soon</h3>
-                  <p className="text-sm text-gray-600">
-                    Webhook configuration is currently under development. Check back soon for this feature.
-                  </p>
-                </div>
-                
-                <div className="grid md:grid-cols-2 gap-6 mt-4">
-                  <div>
-                    <h3 className="font-medium mb-2">Webhook Triggers</h3>
-                    <ul className="space-y-2 text-sm">
-                      <li className="flex items-start">
-                        <div className="bg-orange-100 text-orange-800 rounded-full p-1 mr-2 mt-0.5">
-                          <Clock className="h-3 w-3" />
-                        </div>
-                        <div>
-                          <span className="font-medium">Alert Created</span>
-                          <p className="text-gray-500">Trigger when a new alert is created</p>
-                        </div>
-                      </li>
-                      <li className="flex items-start">
-                        <div className="bg-orange-100 text-orange-800 rounded-full p-1 mr-2 mt-0.5">
-                          <Clock className="h-3 w-3" />
-                        </div>
-                        <div>
-                          <span className="font-medium">Incident Reported</span>
-                          <p className="text-gray-500">Trigger when a new incident is reported</p>
-                        </div>
-                      </li>
-                      <li className="flex items-start">
-                        <div className="bg-orange-100 text-orange-800 rounded-full p-1 mr-2 mt-0.5">
-                          <Clock className="h-3 w-3" />
-                        </div>
-                        <div>
-                          <span className="font-medium">Response Plan Activated</span>
-                          <p className="text-gray-500">Trigger when a response plan is activated</p>
-                        </div>
-                      </li>
-                    </ul>
-                  </div>
-                  
-                  <div>
-                    <h3 className="font-medium mb-2">API Integration</h3>
-                    <ul className="space-y-2 text-sm">
-                      <li className="flex items-start">
-                        <div className="bg-orange-100 text-orange-800 rounded-full p-1 mr-2 mt-0.5">
-                          <Clock className="h-3 w-3" />
-                        </div>
-                        <div>
-                          <span className="font-medium">API Keys</span>
-                          <p className="text-gray-500">Generate API keys for secure access</p>
-                        </div>
-                      </li>
-                      <li className="flex items-start">
-                        <div className="bg-orange-100 text-orange-800 rounded-full p-1 mr-2 mt-0.5">
-                          <Clock className="h-3 w-3" />
-                        </div>
-                        <div>
-                          <span className="font-medium">Rate Limiting</span>
-                          <p className="text-gray-500">Control API usage with rate limits</p>
-                        </div>
-                      </li>
-                      <li className="flex items-start">
-                        <div className="bg-orange-100 text-orange-800 rounded-full p-1 mr-2 mt-0.5">
-                          <Clock className="h-3 w-3" />
-                        </div>
-                        <div>
-                          <span className="font-medium">Access Control</span>
-                          <p className="text-gray-500">Manage permissions for API endpoints</p>
-                        </div>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button 
-                variant="outline" 
-                className="w-full"
-                disabled={true}
-              >
-                <RocketIcon className="h-4 w-4 mr-2" />
-                Coming Soon
-              </Button>
-            </CardFooter>
-          </Card>
+          <WebhooksTab />
+        </TabsContent>
+        <TabsContent value="api-keys">
+          <ApiKeysTab />
         </TabsContent>
       </Tabs>
       

@@ -1,8 +1,33 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { initCronJobs } from "./services/cron-jobs";
+import { logger } from "./services/logger";
+import { seedDefaultTemplates } from "./services/sms-logs-service";
+import { createWebScraperService } from "./services/web-scraper-service";
+import { storage } from "./storage";
 
 const app = express();
+
+// Rate limiting - API abuse protection
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200,
+  message: { error: "Too many requests, please try again later." },
+});
+app.use("/api/", apiLimiter);
+
+// Stricter limit for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: "Too many login attempts." },
+});
+app.use("/api/login", authLimiter);
+app.use("/api/auth/login", authLimiter);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -20,16 +45,7 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
+      logger.http(`${req.method} ${path} ${res.statusCode}`, { duration, status: res.statusCode });
     }
   });
 
@@ -47,24 +63,41 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
+  // In development: use Vite middleware only when NOT using separate Vite dev server
+  // (USE_VITE_DEV_SERVER=1 means Vite runs on port 5173, API on 4342)
+  if (app.get("env") === "development" && !process.env.USE_VITE_DEV_SERVER) {
     await setupVite(app, server);
-  } else {
+  } else if (app.get("env") !== "development") {
     serveStatic(app);
+  } else if (process.env.USE_VITE_DEV_SERVER) {
+    app.get("*", (_req, res) => {
+      res.redirect(301, "http://localhost:5173");
+    });
   }
 
-  // ALWAYS serve the app on port 5000
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = 5000;
+  // Serves both the API and the client (frontend)
+  const port = parseInt(process.env.PORT || "3442", 10);
   server.listen({
     port,
     host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
+    ...(process.platform !== "win32" && { reusePort: true }),
+  }, async () => {
     log(`serving on port ${port}`);
+    initCronJobs();
+    try {
+      await seedDefaultTemplates();
+    } catch (e) {
+      logger.warn("SMS templates seed skipped (table may not exist yet)", { error: e });
+    }
+    
+    // Initialize web scraper for continuous monitoring
+    try {
+      const webScraper = createWebScraperService(storage);
+      // Start continuous scraping every 30 minutes
+      webScraper.startContinuousScraping(30);
+      logger.info("Web scraper initialized - monitoring Nigerian conflict news sources");
+    } catch (e) {
+      logger.warn("Web scraper initialization skipped", { error: e });
+    }
   });
 })();
