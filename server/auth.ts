@@ -67,6 +67,8 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
+  // When using HTTP (no SSL), cookie must not be Secure or browser won't send it
+  const cookieSecure = process.env.COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production';
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET || 'ewers-secret-key',
     resave: false,
@@ -74,7 +76,8 @@ export function setupAuth(app: Express) {
     store: storage.sessionStore,
     cookie: {
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      secure: process.env.NODE_ENV === 'production',
+      secure: cookieSecure,
+      sameSite: 'lax',
     }
   };
 
