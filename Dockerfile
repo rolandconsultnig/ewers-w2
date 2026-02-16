@@ -1,4 +1,4 @@
-FROM node:16-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ COPY . .
 RUN npm run build
 
 # Expose the port the app will run on
-EXPOSE 5000
+EXPOSE 4342
 
 # Start the application
 CMD ["npm", "start"]
