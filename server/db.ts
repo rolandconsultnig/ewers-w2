@@ -8,6 +8,13 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-// Use standard pg driver for local PostgreSQL (Neon serverless uses WebSocket and fails with local DB)
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// For managed DBs (DigitalOcean, etc.) with self-signed certs: set DATABASE_SSL_NO_VERIFY=true
+const poolConfig: { connectionString: string; ssl?: { rejectUnauthorized: boolean } } = {
+  connectionString: process.env.DATABASE_URL,
+};
+if (process.env.DATABASE_SSL_NO_VERIFY === "true") {
+  poolConfig.ssl = { rejectUnauthorized: false };
+}
+
+export const pool = new Pool(poolConfig);
 export const db = drizzle({ client: pool, schema });
