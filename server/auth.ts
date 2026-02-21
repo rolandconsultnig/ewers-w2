@@ -67,6 +67,9 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
+  // In production, cookie.secure=true so browser only sends cookie over HTTPS.
+  // If your app is behind HTTP (no SSL), set COOKIE_SECURE=false in .env so login/session work.
+  const cookieSecure = process.env.COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production';
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET || 'ewers-secret-key',
     resave: false,
@@ -74,7 +77,8 @@ export function setupAuth(app: Express) {
     store: storage.sessionStore,
     cookie: {
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      secure: process.env.NODE_ENV === 'production',
+      secure: cookieSecure,
+      sameSite: 'lax',
     }
   };
 
@@ -109,11 +113,14 @@ export function setupAuth(app: Express) {
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
-      const user = await storage.getUserByUsername(username);
-      if (!user || user.active === false || !(await comparePasswords(password, user.password))) {
-        return done(null, false);
-      } else {
+      try {
+        const user = await storage.getUserByUsername(username);
+        if (!user || user.active === false || !(await comparePasswords(password, user.password))) {
+          return done(null, false, { message: "Invalid username or password" });
+        }
         return done(null, user);
+      } catch (err) {
+        return done(err, false, { message: "Authentication error" });
       }
     }),
   );
@@ -213,17 +220,29 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/login", passport.authenticate("local"), (req, res) => {
-    const user = req.user as SelectUser;
-    const token = generateJWT(user);
-    res.status(200).json({ user, token });
-  });
+  // Custom callback so failed login returns JSON (production-friendly; avoids empty 401 body)
+  const loginHandler = (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    passport.authenticate("local", (err: Error | null, user: SelectUser | false, info: { message?: string }) => {
+      if (err) {
+        return res.status(500).json({ error: info?.message || "Authentication error" });
+      }
+      if (!user) {
+        return res.status(401).json({ error: info?.message || "Invalid username or password" });
+      }
+      req.login(user, (loginErr) => {
+        if (loginErr) return next(loginErr);
+        const token = generateJWT(user);
+        res.status(200).json({ user, token });
+      });
+    })(req, res, next);
+  };
 
-  app.post("/api/auth/login", passport.authenticate("local"), (req, res) => {
-    const user = req.user as SelectUser;
-    const token = generateJWT(user);
-    res.status(200).json({ user, token });
-  });
+  app.post("/api/login", loginHandler);
+  app.post("/api/auth/login", loginHandler);
 
   app.post("/api/auth/jwt", passport.authenticate("local", { session: false }), (req, res) => {
     const user = req.user as SelectUser;

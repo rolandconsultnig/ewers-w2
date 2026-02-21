@@ -76,7 +76,7 @@ app.use((req, res, next) => {
   }
 
   // Serves both the API and the client (frontend)
-  const port = parseInt(process.env.PORT || "3442", 10);
+  const port = parseInt(process.env.PORT || "4342", 10);
   server.listen({
     port,
     host: "0.0.0.0",
