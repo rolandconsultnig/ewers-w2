@@ -2,7 +2,7 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UserCircle, AlertCircle, BookOpen, HeartHandshake, ArrowRight, Coffee, ExternalLink } from "lucide-react";
+import { UserCircle, AlertCircle, BookOpen, HeartHandshake, ArrowRight, Coffee, ExternalLink, Mic } from "lucide-react";
 import { useI18n } from "@/contexts/I18nContext";
 
 // Import the IPCR logo and DG image
@@ -58,11 +58,19 @@ export default function HomePage() {
           <p className="text-xl md:text-2xl max-w-3xl mx-auto mb-8">
             {t("home.hero.subtitle")}
           </p>
-          <Link href="/report-incident">
-            <Button size="lg" className="bg-white text-blue-600 hover:bg-blue-50">
-              {t("home.hero.reportIncident")} <ArrowRight className="ml-2 h-5 w-5" />
-            </Button>
-          </Link>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+            <Link href="/report-incident">
+              <Button size="lg" className="bg-white text-blue-600 hover:bg-blue-50 w-full sm:w-auto">
+                {t("home.hero.reportIncident")} <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
+            </Link>
+            <Link href="/report-by-voice">
+              <Button size="lg" variant="outline" className="border-2 border-white text-white hover:bg-white/10 w-full sm:w-auto">
+                <Mic className="mr-2 h-5 w-5" />
+                Report by Voice
+              </Button>
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -144,6 +152,11 @@ export default function HomePage() {
               <div className="space-y-2">
                 <Link href="/report-incident">
                   <Button className="w-full">{t("home.reportCrisis.reportOnline")}</Button>
+                </Link>
+                <Link href="/report-by-voice">
+                  <Button variant="outline" className="w-full gap-2">
+                    <Mic className="h-4 w-4" /> Report by Voice
+                  </Button>
                 </Link>
                 <Button variant="outline" className="w-full">{t("home.reportCrisis.callHotline")}</Button>
                 <Button variant="outline" className="w-full">{t("home.reportCrisis.smsReporting")}</Button>

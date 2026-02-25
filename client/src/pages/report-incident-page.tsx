@@ -181,6 +181,11 @@ export default function ReportIncidentPage() {
                 <p className="text-gray-600 max-w-xl mx-auto">
                   You can report quickly with just what happened and where. No account or personal details required—only add contact info if you want follow-up.
                 </p>
+                <p className="mt-3 text-sm">
+                  <Link href="/report-by-voice" className="text-blue-600 hover:underline inline-flex items-center gap-1">
+                    <Mic className="h-4 w-4" /> Or report by voice
+                  </Link>
+                </p>
               </div>
 
               <Card className="shadow-lg">
