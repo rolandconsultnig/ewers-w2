@@ -16,6 +16,9 @@ import {
   ArrowRight
 } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { Incident } from "@shared/schema";
+import TrendChart from "@/components/dashboard/TrendChart";
 import { useLocation } from "wouter";
 
 // Using direct fetch instead of apiRequest to troubleshoot
@@ -30,6 +33,15 @@ export default function DataProcessingPage() {
   const [nlpResult, setNlpResult] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [, setLocation] = useLocation();
+  const [temporalDays, setTemporalDays] = useState(90);
+  const [anomalyTimeframe, setAnomalyTimeframe] = useState(90);
+  const [patternTimeframe, setPatternTimeframe] = useState(90);
+  const [anomalyResult, setAnomalyResult] = useState<any>(null);
+  const [patternResult, setPatternResult] = useState<any>(null);
+  const [qualityResult, setQualityResult] = useState<any>(null);
+  const [isRunningAnomaly, setIsRunningAnomaly] = useState(false);
+  const [isRunningPatterns, setIsRunningPatterns] = useState(false);
+  const [isRunningQuality, setIsRunningQuality] = useState(false);
   
   const toolbar = (
     <Button 
@@ -117,6 +129,108 @@ export default function DataProcessingPage() {
       });
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const { data: trendData = [] } = useQuery<
+    { date: string; incidents: number; resolved: number; alerts: number }[]
+  >({
+    queryKey: ["/api/enterprise/trends", temporalDays],
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/api/enterprise/trends?days=${temporalDays}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load trends");
+      return res.json();
+    },
+  });
+
+  const temporalChartData = trendData.map((t) => ({
+    name: t.date,
+    incidents: t.incidents,
+    displacement: t.alerts,
+  }));
+
+  const handleRunAnomalyDetection = async () => {
+    setIsRunningAnomaly(true);
+    setAnomalyResult(null);
+    try {
+      const res = await fetch(`${API_URL}/api/ai/anomaly-detection`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ timeframeDays: anomalyTimeframe }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to detect anomalies");
+      setAnomalyResult(data);
+      toast({
+        title: "Anomaly Detection Complete",
+        description: `${data.summary.totalAnomalies} anomalies detected in the last ${anomalyTimeframe} days.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Anomaly Detection Failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRunningAnomaly(false);
+    }
+  };
+
+  const handleRunPatternDetection = async () => {
+    setIsRunningPatterns(true);
+    setPatternResult(null);
+    try {
+      const res = await fetch(`${API_URL}/api/ai/detect-patterns`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ timeframeDays: patternTimeframe }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to detect patterns");
+      setPatternResult(data);
+      toast({
+        title: "Pattern Detection Complete",
+        description: `${data.summary.totalPatterns} conflict patterns detected.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Pattern Detection Failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRunningPatterns(false);
+    }
+  };
+
+  const handleRunQualityScan = async () => {
+    setIsRunningQuality(true);
+    setQualityResult(null);
+    try {
+      const res = await fetch(`${API_URL}/api/ai/data-quality-scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to run data quality scan");
+      setQualityResult(data);
+      toast({
+        title: "Data Quality Scan Complete",
+        description: `${data.summary.totalIssues} issues found across incidents.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Data Quality Scan Failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRunningQuality(false);
     }
   };
   
@@ -614,14 +728,26 @@ export default function DataProcessingPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-center p-6 text-center">
-                <div>
-                  <Clock className="h-20 w-20 text-blue-400 mx-auto mb-4 opacity-70" />
-                  <h3 className="text-lg font-medium">Temporal Analysis Module</h3>
-                  <p className="text-muted-foreground mt-2 max-w-md mx-auto">
-                    This module will support time series analysis, seasonal pattern identification, and trend analysis of conflict events.
+              <div className="space-y-6">
+                <div className="flex flex-wrap items-end gap-4 mb-2">
+                  <div>
+                    <p className="text-sm font-medium mb-1">Analysis window</p>
+                    <select
+                      className="border rounded px-2 py-1 text-sm"
+                      value={temporalDays}
+                      onChange={(e) => setTemporalDays(parseInt(e.target.value, 10) || 90)}
+                    >
+                      <option value={30}>Last 30 days</option>
+                      <option value={60}>Last 60 days</option>
+                      <option value={90}>Last 90 days</option>
+                      <option value={180}>Last 180 days</option>
+                    </select>
+                  </div>
+                  <p className="text-xs text-muted-foreground max-w-md">
+                    Uses incident and alert data to build daily trends. Combine with the Enterprise dashboard for executive KPIs.
                   </p>
                 </div>
+                <TrendChart data={temporalChartData} title="Daily incidents and alerts over time" />
               </div>
             </CardContent>
           </Card>
@@ -636,14 +762,99 @@ export default function DataProcessingPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-center p-6 text-center">
-                <div>
-                  <BarChart3 className="h-20 w-20 text-blue-400 mx-auto mb-4 opacity-70" />
-                  <h3 className="text-lg font-medium">Pattern Recognition Module</h3>
-                  <p className="text-muted-foreground mt-2 max-w-md mx-auto">
-                    This module will detect recurring conflict patterns, actor relationship analysis, and conflict escalation sequences.
-                  </p>
+              <div className="space-y-6">
+                <div className="flex flex-wrap items-end gap-4">
+                  <div>
+                    <p className="text-sm font-medium mb-1">Analysis window</p>
+                    <select
+                      className="border rounded px-2 py-1 text-sm"
+                      value={patternTimeframe}
+                      onChange={(e) => setPatternTimeframe(parseInt(e.target.value, 10) || 90)}
+                    >
+                      <option value={30}>Last 30 days</option>
+                      <option value={60}>Last 60 days</option>
+                      <option value={90}>Last 90 days</option>
+                    </select>
+                  </div>
+                  <Button
+                    onClick={handleRunPatternDetection}
+                    disabled={isRunningPatterns}
+                  >
+                    {isRunningPatterns ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Detecting patterns...
+                      </>
+                    ) : (
+                      <>
+                        <BarChart3 className="mr-2 h-4 w-4" />
+                        Run Pattern Detection
+                      </>
+                    )}
+                  </Button>
                 </div>
+                {patternResult && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground">Total patterns</p>
+                          <p className="text-2xl font-semibold mt-1">
+                            {patternResult.summary.totalPatterns}
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground">Critical patterns</p>
+                          <p className="text-2xl font-semibold mt-1">
+                            {patternResult.summary.criticalPatterns}
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground">Emerging threats</p>
+                          <p className="text-2xl font-semibold mt-1">
+                            {patternResult.summary.emergingThreats}
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground">Regions affected</p>
+                          <p className="text-2xl font-semibold mt-1">
+                            {patternResult.summary.affectedRegions.length}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </div>
+                    <div className="space-y-3">
+                      {patternResult.patterns.map((p: any) => (
+                        <Card key={p.id}>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-base">{p.title}</CardTitle>
+                            <CardDescription className="text-xs">
+                              Type: {p.type} • Severity: {p.severity.toUpperCase()} • Confidence:{" "}
+                              {Math.round(p.confidence)}%
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent className="space-y-2">
+                            <p className="text-sm text-muted-foreground">{p.description}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Regions: {p.regions.join(", ")}
+                            </p>
+                          </CardContent>
+                        </Card>
+                      ))}
+                      {patternResult.patterns.length === 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          No significant patterns were detected for this timeframe.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -658,14 +869,83 @@ export default function DataProcessingPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-center p-6 text-center">
-                <div>
-                  <AlertCircle className="h-20 w-20 text-blue-400 mx-auto mb-4 opacity-70" />
-                  <h3 className="text-lg font-medium">Anomaly Detection Module</h3>
-                  <p className="text-muted-foreground mt-2 max-w-md mx-auto">
-                    This module will implement statistical anomaly detection, unusual event clustering, and deviation analysis for early warning.
-                  </p>
+              <div className="space-y-6">
+                <div className="flex flex-wrap items-end gap-4">
+                  <div>
+                    <p className="text-sm font-medium mb-1">Analysis window</p>
+                    <select
+                      className="border rounded px-2 py-1 text-sm"
+                      value={anomalyTimeframe}
+                      onChange={(e) => setAnomalyTimeframe(parseInt(e.target.value, 10) || 90)}
+                    >
+                      <option value={30}>Last 30 days</option>
+                      <option value={60}>Last 60 days</option>
+                      <option value={90}>Last 90 days</option>
+                    </select>
+                  </div>
+                  <Button
+                    onClick={handleRunAnomalyDetection}
+                    disabled={isRunningAnomaly}
+                  >
+                    {isRunningAnomaly ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Detecting anomalies...
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="mr-2 h-4 w-4" />
+                        Run Anomaly Detection
+                      </>
+                    )}
+                  </Button>
                 </div>
+                {anomalyResult && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground">Total anomalies</p>
+                          <p className="text-2xl font-semibold mt-1">
+                            {anomalyResult.summary.totalAnomalies}
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground">High/critical</p>
+                          <p className="text-2xl font-semibold mt-1">
+                            {anomalyResult.summary.highSeverity}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </div>
+                    <div className="space-y-3">
+                      {anomalyResult.anomalies.map((a: any) => (
+                        <Card key={a.id}>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">
+                              Spike on {new Date(a.date).toLocaleDateString()}{" "}
+                              {a.region ? `(${a.region})` : ""}
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-1">
+                            <p className="text-sm text-muted-foreground">
+                              Observed: {a.observed} • Expected: {a.expected} • Severity:{" "}
+                              {a.severity.toUpperCase()}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{a.description}</p>
+                          </CardContent>
+                        </Card>
+                      ))}
+                      {anomalyResult.anomalies.length === 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          No significant anomalies were detected for this timeframe.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -680,14 +960,84 @@ export default function DataProcessingPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-center p-6 text-center">
-                <div>
-                  <Filter className="h-20 w-20 text-blue-400 mx-auto mb-4 opacity-70" />
-                  <h3 className="text-lg font-medium">Data Validation Module</h3>
-                  <p className="text-muted-foreground mt-2 max-w-md mx-auto">
-                    This module will provide data cleansing tools, duplicate detection, validation workflows, and data quality scoring.
+              <div className="space-y-6">
+                <div className="flex flex-wrap items-center gap-4">
+                  <Button onClick={handleRunQualityScan} disabled={isRunningQuality}>
+                    {isRunningQuality ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Running scan...
+                      </>
+                    ) : (
+                      <>
+                        <Filter className="mr-2 h-4 w-4" />
+                        Run Data Quality Scan
+                      </>
+                    )}
+                  </Button>
+                  <p className="text-xs text-muted-foreground max-w-md">
+                    Scans incidents for missing required fields, invalid values (severity/status), and suspicious
+                    dates (future reportedAt).
                   </p>
                 </div>
+                {qualityResult && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground">Total issues</p>
+                          <p className="text-2xl font-semibold mt-1">
+                            {qualityResult.summary.totalIssues}
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-muted-foreground">High/critical</p>
+                          <p className="text-2xl font-semibold mt-1">
+                            {qualityResult.summary.highSeverity}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </div>
+                    <div className="space-y-2">
+                      {Object.entries(qualityResult.summary.byType).map(
+                        ([type, count]: [string, any]) => (
+                          <p key={type} className="text-xs text-muted-foreground">
+                            {type}: {count}
+                          </p>
+                        )
+                      )}
+                    </div>
+                    <div className="space-y-3 max-h-96 overflow-auto">
+                      {qualityResult.issues.map((i: any) => (
+                        <Card key={i.id}>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">
+                              {i.entityType} #{i.entityId ?? "—"} — {i.issueType}
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-1">
+                            <p className="text-sm text-muted-foreground">{i.message}</p>
+                            {i.field && (
+                              <p className="text-xs text-muted-foreground">
+                                Field: <span className="font-mono">{i.field}</span>
+                              </p>
+                            )}
+                            <p className="text-xs text-muted-foreground">
+                              Severity: {i.severity.toUpperCase()} • Status: {i.status}
+                            </p>
+                          </CardContent>
+                        </Card>
+                      ))}
+                      {qualityResult.issues.length === 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          No data quality issues found in the scanned incidents.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

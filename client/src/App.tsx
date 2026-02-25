@@ -41,6 +41,7 @@ import SearchPage from "@/pages/search-page";
 import ChatPage from "@/pages/chat-page";
 import EmailPage from "@/pages/email-page";
 import CallsPage from "@/pages/calls-page";
+import CallsJoinPage from "@/pages/calls-join-page";
 import { ProtectedRoute, RoleProtectedRoute } from "./lib/protected-route";
 
 function Router() {
@@ -60,6 +61,7 @@ function Router() {
       <ProtectedRoute path="/chat" component={ChatPage} />
       <ProtectedRoute path="/email" component={EmailPage} />
       <ProtectedRoute path="/calls" component={CallsPage} />
+      <Route path="/calls/join/:callId" component={CallsJoinPage} />
       <ProtectedRoute path="/dashboard" component={PeaceTrackerDashboard} />
       <ProtectedRoute path="/executive" component={ExecutiveDashboardPage} />
       <ProtectedRoute path="/internal" component={PeaceTrackerInternalDashboard} />

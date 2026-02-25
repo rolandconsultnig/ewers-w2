@@ -6,6 +6,7 @@ import { Router } from "express";
 import type { Server as SocketIOServer } from "socket.io";
 import { storage } from "../storage";
 import type { User as SelectUser } from "@shared/schema";
+import { signCallGuestToken, verifyCallGuestToken } from "../auth";
 
 export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
   // --- CONVERSATIONS (Chat & Email) ---
@@ -220,8 +221,8 @@ export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
   app.get("/api/calls", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
-      // Return active calls - for now we don't have a list endpoint, so return empty
-      res.json([]);
+      const calls = await storage.getActiveCallSessions();
+      res.json(calls);
     } catch (e) {
       res.status(500).json({ error: "Failed to fetch calls" });
     }
@@ -267,14 +268,69 @@ export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
     const user = req.user as SelectUser;
     const id = parseInt(req.params.id);
     try {
-      const p = await storage.addCallParticipant({
+      const call = await storage.getCallSession(id);
+      if (!call || call.status !== "active") return res.status(404).json({ error: "Call not found or ended" });
+      await storage.addCallParticipant({
         callSessionId: id,
         userId: user.id,
       });
-      res.status(201).json(p);
+      res.status(201).json({ id: call.id, type: call.type });
     } catch (e) {
       console.error("Error joining call:", e);
       res.status(500).json({ error: "Failed to join call" });
+    }
+  });
+
+  app.get("/api/calls/:id/public", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid call ID" });
+    try {
+      const call = await storage.getCallSession(id);
+      if (!call) return res.status(404).json({ error: "Call not found" });
+      res.json({ id: call.id, type: call.type, status: call.status });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to fetch call" });
+    }
+  });
+
+  app.post("/api/calls/:id/join-guest", async (req, res) => {
+    const id = parseInt(req.params.id);
+    const { displayName } = req.body || {};
+    const name = typeof displayName === "string" ? displayName.trim() : "";
+    if (!name || name.length < 1) return res.status(400).json({ error: "Display name is required" });
+    try {
+      const call = await storage.getCallSession(id);
+      if (!call || call.status !== "active") return res.status(404).json({ error: "Call not found or ended" });
+      const participant = await storage.addCallParticipant({
+        callSessionId: id,
+        userId: null,
+        guestDisplayName: name.slice(0, 100),
+      });
+      const guestToken = signCallGuestToken({
+        callId: id,
+        participantId: participant.id,
+        displayName: name.slice(0, 100),
+      });
+      res.status(201).json({ id: call.id, type: call.type, guestToken, participantId: participant.id });
+    } catch (e) {
+      console.error("Error joining call as guest:", e);
+      res.status(500).json({ error: "Failed to join call" });
+    }
+  });
+
+  app.post("/api/calls/:id/leave-guest", async (req, res) => {
+    const id = parseInt(req.params.id);
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!token) return res.status(401).json({ error: "Guest token required" });
+    const guest = verifyCallGuestToken(token);
+    if (!guest || guest.callId !== id) return res.status(401).json({ error: "Invalid token" });
+    try {
+      await storage.leaveCallParticipantByGuestId(id, guest.participantId);
+      res.json({ left: true });
+    } catch (e) {
+      console.error("Error leaving call as guest:", e);
+      res.status(500).json({ error: "Failed to leave call" });
     }
   });
 

@@ -1,5 +1,7 @@
 import { storage } from '../storage';
 import { logger } from './logger';
+import { db } from '../db';
+import { peaceOpportunities } from '@shared/schema';
 
 export interface PeaceOpportunity {
   id: string;
@@ -115,6 +117,32 @@ export class PeaceIndicatorsService {
         },
         generatedAt: new Date(),
       };
+
+      // Persist opportunities snapshot for audit/analytics
+      if (finalOpportunities.length > 0) {
+        try {
+          await db.insert(peaceOpportunities).values(
+            finalOpportunities.map((o) => ({
+              externalId: o.id,
+              title: o.title,
+              description: o.description,
+              region: o.region,
+              confidence: Math.round(o.confidence),
+              priority: o.priority,
+              windowStart: o.timeWindow.start,
+              windowEnd: o.timeWindow.end,
+              windowOptimal: o.timeWindow.optimal,
+              indicators: o.indicators,
+              prerequisites: o.prerequisites,
+              recommendations: o.recommendations,
+              riskFactors: o.riskFactors,
+              successProbability: Math.round(o.successProbability),
+            }))
+          );
+        } catch (e) {
+          logger.warn('Failed to persist peace opportunities snapshot', { error: e });
+        }
+      }
 
       logger.info(`Peace opportunity prediction completed: ${opportunities.length} opportunities identified`);
       return result;

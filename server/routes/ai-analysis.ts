@@ -10,6 +10,9 @@ import { conflictNLPService } from "../services/conflict-nlp-service";
 import { createWebScraperService } from "../services/web-scraper-service";
 import { patternDetectionService } from "../services/pattern-detection-service";
 import { peaceIndicatorsService } from "../services/peace-indicators-service";
+import { escalationPredictionService } from "../services/escalation-prediction-service";
+import { anomalyDetectionService } from "../services/anomaly-detection-service";
+import { dataQualityService } from "../services/data-quality-service";
 import { responseAdvisorService } from "../services/response-advisor-service";
 
 export function setupAIAnalysisRoutes(app: Router, storage: IStorage) {
@@ -276,6 +279,54 @@ export function setupAIAnalysisRoutes(app: Router, storage: IStorage) {
     } catch (error) {
       console.error("Error predicting peace opportunities:", error);
       res.status(500).json({ error: "Failed to predict peace opportunities" });
+    }
+  });
+
+  // Escalation Prediction - Predict escalation risk for a specific incident
+  app.post("/api/ai/escalation-prediction", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+
+    const { incidentId } = req.body as { incidentId?: number };
+    if (!incidentId || !Number.isFinite(incidentId)) {
+      return res.status(400).json({ error: "incidentId is required" });
+    }
+
+    try {
+      const result = await escalationPredictionService.predictForIncident(incidentId);
+      res.json(result);
+    } catch (error) {
+      console.error("Error predicting escalation:", error);
+      if (error instanceof Error && error.message === "Incident not found") {
+        return res.status(404).json({ error: "Incident not found" });
+      }
+      res.status(500).json({ error: "Failed to predict escalation" });
+    }
+  });
+
+  // Anomaly Detection - Identify unusual incident patterns (spikes)
+  app.post("/api/ai/anomaly-detection", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+
+    const { timeframeDays = 90, region } = req.body as { timeframeDays?: number; region?: string };
+
+    try {
+      const days = Math.min(365, Math.max(7, Number(timeframeDays) || 90));
+      const result = await anomalyDetectionService.detectIncidentAnomalies(days, region || undefined);
+      res.json(result);
+    } catch (error) {
+      console.error("Error detecting anomalies:", error);
+      res.status(500).json({ error: "Failed to detect anomalies" });
+    }
+  });
+
+  // Data Cleaning & Validation - Run data quality scan
+  app.post("/api/ai/data-quality-scan", async (_req, res) => {
+    try {
+      const result = await dataQualityService.scan();
+      res.json(result);
+    } catch (error) {
+      console.error("Error running data quality scan:", error);
+      res.status(500).json({ error: "Failed to run data quality scan" });
     }
   });
 

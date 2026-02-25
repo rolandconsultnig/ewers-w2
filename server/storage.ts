@@ -184,8 +184,11 @@ export interface IStorage {
 
   createCallSession(call: InsertCallSession): Promise<CallSession>;
   endCallSession(callSessionId: number): Promise<CallSession>;
+  getCallSession(id: number): Promise<CallSession | undefined>;
+  getActiveCallSessions(): Promise<CallSession[]>;
   addCallParticipant(participant: InsertCallParticipant): Promise<CallParticipant>;
   leaveCallParticipant(callSessionId: number, userId: number): Promise<CallParticipant | undefined>;
+  leaveCallParticipantByGuestId(callSessionId: number, participantId: number): Promise<CallParticipant | undefined>;
 
   // Session store
   sessionStore: any;
@@ -360,6 +363,19 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
+  async getCallSession(id: number): Promise<CallSession | undefined> {
+    const [row] = await db.select().from(callSessions).where(eq(callSessions.id, id));
+    return row;
+  }
+
+  async getActiveCallSessions(): Promise<CallSession[]> {
+    return db
+      .select()
+      .from(callSessions)
+      .where(eq(callSessions.status, "active"))
+      .orderBy(desc(callSessions.startedAt));
+  }
+
   async addCallParticipant(participant: InsertCallParticipant): Promise<CallParticipant> {
     const [row] = await db.insert(callParticipants).values(participant as any).returning();
     return row;
@@ -370,6 +386,15 @@ export class DatabaseStorage implements IStorage {
       .update(callParticipants)
       .set({ leftAt: new Date() as any })
       .where(and(eq(callParticipants.callSessionId, callSessionId), eq(callParticipants.userId, userId)))
+      .returning();
+    return row;
+  }
+
+  async leaveCallParticipantByGuestId(callSessionId: number, participantId: number): Promise<CallParticipant | undefined> {
+    const [row] = await db
+      .update(callParticipants)
+      .set({ leftAt: new Date() as any })
+      .where(and(eq(callParticipants.callSessionId, callSessionId), eq(callParticipants.id, participantId)))
       .returning();
     return row;
   }

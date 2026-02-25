@@ -27,14 +27,16 @@ interface SocketContextType {
   onTypingStop: (cb: (data: { conversationId: number; userId: number }) => void) => () => void;
   joinCall: (callId: number) => void;
   leaveCall: (callId: number) => void;
-  emitCallOffer: (callId: number, offer: RTCSessionDescriptionInit) => void;
-  emitCallAnswer: (callId: number, answer: RTCSessionDescriptionInit) => void;
-  emitCallIce: (callId: number, candidate: RTCIceCandidateInit) => void;
-  onCallOffer: (cb: (data: { callId: number; offer: RTCSessionDescriptionInit }) => void) => () => void;
-  onCallAnswer: (cb: (data: { callId: number; answer: RTCSessionDescriptionInit }) => void) => () => void;
-  onCallIce: (cb: (data: { callId: number; candidate: RTCIceCandidateInit }) => void) => () => void;
+  emitCallOffer: (callId: number, offer: RTCSessionDescriptionInit, toUserId?: number, toGuestParticipantId?: number) => void;
+  emitCallAnswer: (callId: number, answer: RTCSessionDescriptionInit, toUserId?: number, toGuestParticipantId?: number) => void;
+  emitCallIce: (callId: number, candidate: RTCIceCandidateInit, toUserId?: number, toGuestParticipantId?: number) => void;
+  onCallOffer: (cb: (data: { callId: number; offer: RTCSessionDescriptionInit; fromUserId?: number; fromGuestParticipantId?: number; toUserId?: number; toGuestParticipantId?: number }) => void) => () => void;
+  onCallAnswer: (cb: (data: { callId: number; answer: RTCSessionDescriptionInit; fromUserId?: number; fromGuestParticipantId?: number; toUserId?: number; toGuestParticipantId?: number }) => void) => () => void;
+  onCallIce: (cb: (data: { callId: number; candidate: RTCIceCandidateInit; fromUserId?: number; fromGuestParticipantId?: number; toUserId?: number; toGuestParticipantId?: number }) => void) => () => void;
   requestCallOffer: (callId: number) => void;
-  onCallRequestOffer: (cb: (data: { callId: number }) => void) => () => void;
+  onCallRequestOffer: (cb: (data: { callId: number; fromUserId?: number; fromGuestParticipantId?: number; fromGuestDisplayName?: string }) => void) => () => void;
+  emitCallParticipantJoined: (callId: number) => void;
+  onCallParticipantJoined: (cb: (data: { callId: number; userId?: number; guestParticipantId?: number; guestDisplayName?: string }) => void) => () => void;
 }
 
 const SocketContext = createContext<SocketContextType>({
@@ -59,6 +61,8 @@ const SocketContext = createContext<SocketContextType>({
   onCallIce: () => () => {},
   requestCallOffer: () => {},
   onCallRequestOffer: () => () => {},
+  emitCallParticipantJoined: () => {},
+  onCallParticipantJoined: () => () => {},
 });
 
 export function SocketProvider({ children }: { children: ReactNode }) {
@@ -101,29 +105,38 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
   const joinCall = useCallback((callId: number) => socket?.emit("call:join", callId), [socket]);
   const leaveCall = useCallback((callId: number) => socket?.emit("call:leave", callId), [socket]);
-  const emitCallOffer = useCallback((callId: number, offer: RTCSessionDescriptionInit) => socket?.emit("call:offer", { callId, offer }), [socket]);
-  const emitCallAnswer = useCallback((callId: number, answer: RTCSessionDescriptionInit) => socket?.emit("call:answer", { callId, answer }), [socket]);
-  const emitCallIce = useCallback((callId: number, candidate: RTCIceCandidateInit) => socket?.emit("call:ice", { callId, candidate }), [socket]);
-  const onCallOffer = useCallback((cb: (data: { callId: number; offer: RTCSessionDescriptionInit }) => void) => {
+  const emitCallOffer = useCallback((callId: number, offer: RTCSessionDescriptionInit, toUserId?: number, toGuestParticipantId?: number) =>
+    socket?.emit("call:offer", { callId, offer, toUserId, toGuestParticipantId }), [socket]);
+  const emitCallAnswer = useCallback((callId: number, answer: RTCSessionDescriptionInit, toUserId?: number, toGuestParticipantId?: number) =>
+    socket?.emit("call:answer", { callId, answer, toUserId, toGuestParticipantId }), [socket]);
+  const emitCallIce = useCallback((callId: number, candidate: RTCIceCandidateInit, toUserId?: number, toGuestParticipantId?: number) =>
+    socket?.emit("call:ice", { callId, candidate, toUserId, toGuestParticipantId }), [socket]);
+  const onCallOffer = useCallback((cb: (data: { callId: number; offer: RTCSessionDescriptionInit; fromUserId?: number; fromGuestParticipantId?: number; toUserId?: number; toGuestParticipantId?: number }) => void) => {
     if (!socket) return () => {};
     socket.on("call:offer", cb);
     return () => socket.off("call:offer", cb);
   }, [socket]);
-  const onCallAnswer = useCallback((cb: (data: { callId: number; answer: RTCSessionDescriptionInit }) => void) => {
+  const onCallAnswer = useCallback((cb: (data: { callId: number; answer: RTCSessionDescriptionInit; fromUserId?: number; fromGuestParticipantId?: number; toUserId?: number; toGuestParticipantId?: number }) => void) => {
     if (!socket) return () => {};
     socket.on("call:answer", cb);
     return () => socket.off("call:answer", cb);
   }, [socket]);
-  const onCallIce = useCallback((cb: (data: { callId: number; candidate: RTCIceCandidateInit }) => void) => {
+  const onCallIce = useCallback((cb: (data: { callId: number; candidate: RTCIceCandidateInit; fromUserId?: number; fromGuestParticipantId?: number; toUserId?: number; toGuestParticipantId?: number }) => void) => {
     if (!socket) return () => {};
     socket.on("call:ice", cb);
     return () => socket.off("call:ice", cb);
   }, [socket]);
   const requestCallOffer = useCallback((callId: number) => socket?.emit("call:request-offer", callId), [socket]);
-  const onCallRequestOffer = useCallback((cb: (data: { callId: number }) => void) => {
+  const onCallRequestOffer = useCallback((cb: (data: { callId: number; fromUserId?: number; fromGuestParticipantId?: number; fromGuestDisplayName?: string }) => void) => {
     if (!socket) return () => {};
     socket.on("call:request-offer", cb);
     return () => socket.off("call:request-offer", cb);
+  }, [socket]);
+  const emitCallParticipantJoined = useCallback((callId: number) => socket?.emit("call:participant-joined", { callId }), [socket]);
+  const onCallParticipantJoined = useCallback((cb: (data: { callId: number; userId?: number; guestParticipantId?: number; guestDisplayName?: string }) => void) => {
+    if (!socket) return () => {};
+    socket.on("call:participant-joined", cb);
+    return () => socket.off("call:participant-joined", cb);
   }, [socket]);
 
   useEffect(() => {
@@ -163,6 +176,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       joinCall, leaveCall, emitCallOffer, emitCallAnswer, emitCallIce,
       onCallOffer, onCallAnswer, onCallIce,
       requestCallOffer, onCallRequestOffer,
+      emitCallParticipantJoined, onCallParticipantJoined,
     }}>
       {children}
     </SocketContext.Provider>

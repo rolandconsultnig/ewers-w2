@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,6 +26,8 @@ import {
   Flag
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useQuery } from "@tanstack/react-query";
+import type { Incident } from "@shared/schema";
 
 export default function AiPredictionPage() {
   const { toast } = useToast();
@@ -36,6 +38,47 @@ export default function AiPredictionPage() {
   const [startDate, setStartDate] = useState<Date | undefined>(new Date());
   const [showResults, setShowResults] = useState(false);
   const [forecastData, setForecastData] = useState<Record<string, unknown> | null>(null);
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string>("");
+  const [escalationResult, setEscalationResult] = useState<{
+    incidentId: number;
+    region: string | null;
+    currentSeverity: string;
+    escalationRisk: "low" | "medium" | "high";
+    probability: number;
+    timeWindowDays: number;
+    keyDrivers: string[];
+    recommendedActions: string[];
+  } | null>(null);
+  const [isEscalationLoading, setIsEscalationLoading] = useState(false);
+  const [piRegion, setPiRegion] = useState<string>("Nigeria");
+  const [piDays, setPiDays] = useState<number>(90);
+  const [isPiLoading, setIsPiLoading] = useState(false);
+  const [piResult, setPiResult] = useState<{
+    summary: { totalOpportunities: number; highPriorityOpportunities: number; optimalWindows: number; affectedRegions: string[] };
+    opportunities: Array<{
+      id: string;
+      title: string;
+      description: string;
+      region: string;
+      confidence: number;
+      priority: string;
+      timeWindow: { start: string | Date; end: string | Date; optimal: string | Date };
+      successProbability: number;
+    }>;
+  } | null>(null);
+
+  const { data: incidents = [] } = useQuery<Incident[]>({
+    queryKey: ["/api/incidents"],
+  });
+
+  const sortedIncidents = useMemo(
+    () =>
+      incidents
+        .slice()
+        .sort((a, b) => new Date(b.reportedAt).getTime() - new Date(a.reportedAt).getTime())
+        .slice(0, 50),
+    [incidents]
+  );
   
   const handleGenerateForecast = async () => {
     setIsLoading(true);
@@ -66,6 +109,72 @@ export default function AiPredictionPage() {
     { value: "south-east", label: "South East Nigeria" },
     { value: "south-south", label: "South South Nigeria" },
   ];
+
+  const peaceRegionOptions = [
+    { value: "Nigeria", label: "Nigeria (National)" },
+    { value: "North Central", label: "North Central" },
+    { value: "North East", label: "North East" },
+    { value: "North West", label: "North West" },
+    { value: "South East", label: "South East" },
+    { value: "South South", label: "South South" },
+    { value: "South West", label: "South West" },
+  ];
+
+  const handleRunEscalationPrediction = async () => {
+    if (!selectedIncidentId) {
+      toast({ title: "Select an incident", description: "Please choose an incident first.", variant: "destructive" });
+      return;
+    }
+    setIsEscalationLoading(true);
+    setEscalationResult(null);
+    try {
+      const incidentId = parseInt(selectedIncidentId, 10);
+      const res = await fetch("/api/ai/escalation-prediction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ incidentId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to run escalation prediction");
+      setEscalationResult(data.prediction);
+    } catch (e) {
+      toast({
+        title: "Escalation prediction failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsEscalationLoading(false);
+    }
+  };
+
+  const handleRunPeaceIndicators = async () => {
+    setIsPiLoading(true);
+    setPiResult(null);
+    try {
+      const res = await fetch("/api/ai/peace-opportunities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ timeframeDays: piDays, region: piRegion === "Nigeria" ? undefined : piRegion }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to run peace indicators analysis");
+      setPiResult({
+        summary: data.summary,
+        opportunities: (data.opportunities || []).slice(0, 10),
+      });
+    } catch (e) {
+      toast({
+        title: "Peace indicators failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsPiLoading(false);
+    }
+  };
   
   return (
     <MainLayout title="AI Predictive Models">
@@ -418,19 +527,117 @@ export default function AiPredictionPage() {
             <CardHeader>
               <CardTitle>Escalation Prediction</CardTitle>
               <CardDescription>
-                Predict how current incidents might escalate and analyze potential conflict trajectories
+                Predict escalation risk for a specific incident based on severity and regional risk indicators
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="p-8 flex flex-col items-center justify-center text-center">
-                <TrendingUp className="h-12 w-12 text-gray-300 mb-4" />
-                <h3 className="text-lg font-medium mb-2">Select an Incident</h3>
-                <p className="text-gray-500 mb-4">Choose an existing incident to predict potential escalation pathways</p>
-                <div className="w-full max-w-md">
-                  <Input placeholder="Search for an incident..." className="mb-4" />
-                  <Button>
-                    Continue
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="md:col-span-1 space-y-4">
+                  <h3 className="text-sm font-medium mb-1">Select incident</h3>
+                  <Select
+                    value={selectedIncidentId}
+                    onValueChange={setSelectedIncidentId}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose an incident" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-64">
+                      {sortedIncidents.map((inc) => (
+                        <SelectItem key={inc.id} value={String(inc.id)}>
+                          {inc.title.length > 40 ? `${inc.title.slice(0, 40)}…` : inc.title}{" "}
+                          {inc.region ? `(${inc.region})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500">
+                    Showing the most recent incidents. Use the Incident Review or Dashboard to manage incidents.
+                  </p>
+                  <Button
+                    className="w-full"
+                    onClick={handleRunEscalationPrediction}
+                    disabled={isEscalationLoading || !sortedIncidents.length}
+                  >
+                    {isEscalationLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Running prediction...
+                      </>
+                    ) : (
+                      <>
+                        <TrendingUp className="mr-2 h-4 w-4" />
+                        Predict Escalation
+                      </>
+                    )}
                   </Button>
+                </div>
+
+                <div className="md:col-span-2">
+                  {escalationResult ? (
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="text-xl font-semibold mb-1">Escalation Risk Assessment</h3>
+                          <p className="text-sm text-gray-500">
+                            Incident ID {escalationResult.incidentId}
+                            {escalationResult.region ? ` • ${escalationResult.region}` : ""} • Current severity:{" "}
+                            <span className="font-semibold capitalize">{escalationResult.currentSeverity}</span>
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <Badge
+                            className={
+                              escalationResult.escalationRisk === "high"
+                                ? "bg-red-100 text-red-800"
+                                : escalationResult.escalationRisk === "medium"
+                                ? "bg-amber-100 text-amber-800"
+                                : "bg-green-100 text-green-800"
+                            }
+                          >
+                            {escalationResult.escalationRisk.toUpperCase()} RISK
+                          </Badge>
+                          <Badge variant="outline">
+                            {escalationResult.probability}% probability • {escalationResult.timeWindowDays} day window
+                          </Badge>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">Key Drivers</CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-2">
+                            {escalationResult.keyDrivers.map((d, idx) => (
+                              <p key={idx} className="text-sm text-gray-700">
+                                • {d}
+                              </p>
+                            ))}
+                            {escalationResult.keyDrivers.length === 0 && (
+                              <p className="text-sm text-gray-500">No specific drivers identified.</p>
+                            )}
+                          </CardContent>
+                        </Card>
+
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">Recommended Actions</CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-2">
+                            {escalationResult.recommendedActions.map((a, idx) => (
+                              <p key={idx} className="text-sm text-gray-700">
+                                • {a}
+                              </p>
+                            ))}
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-center text-gray-500 text-sm">
+                      Select an incident and run the model to see escalation predictions.
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -446,13 +653,141 @@ export default function AiPredictionPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="p-8 flex flex-col items-center justify-center text-center">
-                <Bot className="h-12 w-12 text-gray-300 mb-4" />
-                <h3 className="text-lg font-medium mb-2">Under Development</h3>
-                <p className="text-gray-500 mb-4">
-                  The peace indicators prediction model is currently being refined with additional data
-                </p>
-                <Button variant="outline">Coming Soon</Button>
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Region</label>
+                    <Select value={piRegion} onValueChange={setPiRegion}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select region" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {peaceRegionOptions.map((r) => (
+                          <SelectItem key={r.value} value={r.value}>
+                            {r.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Analysis window (days)</label>
+                    <Select value={String(piDays)} onValueChange={(v) => setPiDays(parseInt(v, 10) || 90)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="30">30 days</SelectItem>
+                        <SelectItem value="60">60 days</SelectItem>
+                        <SelectItem value="90">90 days</SelectItem>
+                        <SelectItem value="180">180 days</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      className="w-full"
+                      onClick={handleRunPeaceIndicators}
+                      disabled={isPiLoading}
+                    >
+                      {isPiLoading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Analyzing...
+                        </>
+                      ) : (
+                        <>
+                          <Bot className="mr-2 h-4 w-4" />
+                          Run Peace Indicators
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                {piResult && (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-gray-500">Total opportunities</p>
+                          <p className="text-2xl font-semibold mt-1">{piResult.summary.totalOpportunities}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-gray-500">High/critical priority</p>
+                          <p className="text-2xl font-semibold mt-1">
+                            {piResult.summary.highPriorityOpportunities}
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-gray-500">Optimal windows (≤ 30 days)</p>
+                          <p className="text-2xl font-semibold mt-1">{piResult.summary.optimalWindows}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <p className="text-xs text-gray-500">Regions covered</p>
+                          <p className="text-2xl font-semibold mt-1">
+                            {piResult.summary.affectedRegions.length}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    <div className="space-y-3">
+                      {piResult.opportunities.map((opp) => (
+                        <Card key={opp.id}>
+                          <CardHeader className="pb-2">
+                            <div className="flex justify-between items-start gap-3">
+                              <div>
+                                <CardTitle className="text-base">{opp.title}</CardTitle>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {opp.region} • success probability {Math.round(opp.successProbability)}%
+                                </p>
+                              </div>
+                              <div className="flex flex-col items-end gap-1">
+                                <Badge
+                                  className={
+                                    opp.priority === "critical"
+                                      ? "bg-red-100 text-red-800"
+                                      : opp.priority === "high"
+                                      ? "bg-amber-100 text-amber-800"
+                                      : opp.priority === "medium"
+                                      ? "bg-blue-100 text-blue-800"
+                                      : "bg-green-100 text-green-800"
+                                  }
+                                >
+                                  {opp.priority.toUpperCase()}
+                                </Badge>
+                                <Badge variant="outline">
+                                  {Math.round(opp.confidence)}% confidence
+                                </Badge>
+                              </div>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-2">
+                            <p className="text-sm text-gray-700">{opp.description}</p>
+                            <p className="text-xs text-gray-500">
+                              Window:{" "}
+                              {new Date(opp.timeWindow.start).toLocaleDateString()} –{" "}
+                              {new Date(opp.timeWindow.end).toLocaleDateString()} • Optimal:{" "}
+                              {new Date(opp.timeWindow.optimal).toLocaleDateString()}
+                            </p>
+                          </CardContent>
+                        </Card>
+                      ))}
+                      {piResult.opportunities.length === 0 && (
+                        <p className="text-sm text-gray-500">
+                          No peace opportunities were identified for this window and region.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

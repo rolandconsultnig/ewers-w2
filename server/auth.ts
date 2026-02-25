@@ -44,6 +44,19 @@ export function verifyJWT(token: string): { id: number; username: string; role: 
   }
 }
 
+export function signCallGuestToken(payload: { callId: number; participantId: number; displayName: string }): string {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
+}
+
+export function verifyCallGuestToken(token: string): { callId: number; participantId: number; displayName: string } | null {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { callId: number; participantId: number; displayName: string };
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
 // RBAC: Super Admin (7), Supervisor (5+), Field Agent (1-4)
 export function requireRole(allowedRoles: string[], minSecurityLevel?: number) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {

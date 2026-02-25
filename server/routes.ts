@@ -2,7 +2,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { createServer, type Server } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { storage } from "./storage";
-import { setupAuth } from "./auth";
+import { setupAuth, verifyCallGuestToken } from "./auth";
 import { z } from "zod";
 import {
   insertDataSourceSchema,
@@ -114,6 +114,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   io.on("connection", async (socket) => {
     const userId = socket.handshake.auth?.userId;
     const username = socket.handshake.auth?.username;
+    const guestToken = socket.handshake.auth?.guestToken;
+    let guestCallId: number | undefined;
+    let guestParticipantId: number | undefined;
+    let guestDisplayName: string | undefined;
+    if (guestToken && typeof guestToken === "string") {
+      const guest = verifyCallGuestToken(guestToken);
+      if (guest) {
+        guestCallId = guest.callId;
+        guestParticipantId = guest.participantId;
+        guestDisplayName = guest.displayName;
+      }
+    }
     if (userId && username) {
       onlineUsers.set(socket.id, { userId, username });
       io.emit("online-users", Array.from(onlineUsers.values()));
@@ -146,22 +158,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     });
     socket.on("call:join", (callId: number) => {
+      if (guestParticipantId != null && guestCallId !== callId) return;
       socket.join(`call:${callId}`);
     });
     socket.on("call:leave", (callId: number) => {
       socket.leave(`call:${callId}`);
     });
-    socket.on("call:offer", (data: { callId: number; offer: object }) => {
-      socket.to(`call:${data.callId}`).emit("call:offer", data);
+    socket.on("call:offer", (data: { callId: number; offer: object; toUserId?: number; toGuestParticipantId?: number }) => {
+      const payload = userId != null ? { ...data, fromUserId: userId } : { ...data, fromGuestParticipantId: guestParticipantId, fromGuestDisplayName: guestDisplayName };
+      socket.to(`call:${data.callId}`).emit("call:offer", payload);
     });
-    socket.on("call:answer", (data: { callId: number; answer: object }) => {
-      socket.to(`call:${data.callId}`).emit("call:answer", data);
+    socket.on("call:answer", (data: { callId: number; answer: object; toUserId?: number; toGuestParticipantId?: number }) => {
+      const payload = userId != null ? { ...data, fromUserId: userId } : { ...data, fromGuestParticipantId: guestParticipantId, fromGuestDisplayName: guestDisplayName };
+      socket.to(`call:${data.callId}`).emit("call:answer", payload);
     });
-    socket.on("call:ice", (data: { callId: number; candidate: object }) => {
-      socket.to(`call:${data.callId}`).emit("call:ice", data);
+    socket.on("call:ice", (data: { callId: number; candidate: object; toUserId?: number; toGuestParticipantId?: number }) => {
+      const payload = userId != null ? { ...data, fromUserId: userId } : { ...data, fromGuestParticipantId: guestParticipantId };
+      socket.to(`call:${data.callId}`).emit("call:ice", payload);
     });
     socket.on("call:request-offer", (callId: number) => {
-      socket.to(`call:${callId}`).emit("call:request-offer", { callId, fromUserId: userId });
+      if (userId != null) socket.to(`call:${callId}`).emit("call:request-offer", { callId, fromUserId: userId });
+      else socket.to(`call:${callId}`).emit("call:request-offer", { callId, fromGuestParticipantId: guestParticipantId, fromGuestDisplayName: guestDisplayName });
+    });
+    socket.on("call:participant-joined", (data: { callId: number }) => {
+      if (userId != null) socket.to(`call:${data.callId}`).emit("call:participant-joined", { callId: data.callId, userId });
+      else socket.to(`call:${data.callId}`).emit("call:participant-joined", { callId: data.callId, guestParticipantId, guestDisplayName });
     });
 
     socket.on("disconnect", () => {
