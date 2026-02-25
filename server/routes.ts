@@ -128,6 +128,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     socket.on("leave-conversation", (conversationId: number) => {
       socket.leave(`conversation:${conversationId}`);
     });
+    socket.on("chat:typing-start", (conversationId: number) => {
+      socket.to(`conversation:${conversationId}`).emit("chat:typing", {
+        conversationId,
+        userId,
+        username: username || "Unknown",
+      });
+    });
+    socket.on("chat:typing-stop", (conversationId: number) => {
+      socket.to(`conversation:${conversationId}`).emit("chat:typing-stop", {
+        conversationId,
+        userId,
+      });
+    });
     socket.on("call:join", (callId: number) => {
       socket.join(`call:${callId}`);
     });

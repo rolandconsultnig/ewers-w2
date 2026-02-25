@@ -7,6 +7,12 @@ interface OnlineUser {
   username: string;
 }
 
+export interface TypingUser {
+  conversationId: number;
+  userId: number;
+  username: string;
+}
+
 interface SocketContextType {
   socket: Socket | null;
   isConnected: boolean;
@@ -15,6 +21,10 @@ interface SocketContextType {
   joinConversation: (conversationId: number) => void;
   leaveConversation: (conversationId: number) => void;
   onNewMessage: (cb: (msg: unknown) => void) => () => void;
+  emitTypingStart: (conversationId: number) => void;
+  emitTypingStop: (conversationId: number) => void;
+  onTyping: (cb: (data: TypingUser) => void) => () => void;
+  onTypingStop: (cb: (data: { conversationId: number; userId: number }) => void) => () => void;
   joinCall: (callId: number) => void;
   leaveCall: (callId: number) => void;
   emitCallOffer: (callId: number, offer: RTCSessionDescriptionInit) => void;
@@ -35,6 +45,10 @@ const SocketContext = createContext<SocketContextType>({
   joinConversation: () => {},
   leaveConversation: () => {},
   onNewMessage: () => () => {},
+  emitTypingStart: () => {},
+  emitTypingStop: () => {},
+  onTyping: () => () => {},
+  onTypingStop: () => () => {},
   joinCall: () => {},
   leaveCall: () => {},
   emitCallOffer: () => {},
@@ -66,6 +80,23 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     if (!socket) return () => {};
     socket.on("new-message", cb);
     return () => socket.off("new-message", cb);
+  }, [socket]);
+
+  const emitTypingStart = useCallback((conversationId: number) => {
+    socket?.emit("chat:typing-start", conversationId);
+  }, [socket]);
+  const emitTypingStop = useCallback((conversationId: number) => {
+    socket?.emit("chat:typing-stop", conversationId);
+  }, [socket]);
+  const onTyping = useCallback((cb: (data: TypingUser) => void) => {
+    if (!socket) return () => {};
+    socket.on("chat:typing", cb);
+    return () => socket.off("chat:typing", cb);
+  }, [socket]);
+  const onTypingStop = useCallback((cb: (data: { conversationId: number; userId: number }) => void) => {
+    if (!socket) return () => {};
+    socket.on("chat:typing-stop", cb);
+    return () => socket.off("chat:typing-stop", cb);
   }, [socket]);
 
   const joinCall = useCallback((callId: number) => socket?.emit("call:join", callId), [socket]);
@@ -128,6 +159,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     <SocketContext.Provider value={{
       socket, isConnected, lastMessage, onlineUsers,
       joinConversation, leaveConversation, onNewMessage,
+      emitTypingStart, emitTypingStop, onTyping, onTypingStop,
       joinCall, leaveCall, emitCallOffer, emitCallAnswer, emitCallIce,
       onCallOffer, onCallAnswer, onCallIce,
       requestCallOffer, onCallRequestOffer,

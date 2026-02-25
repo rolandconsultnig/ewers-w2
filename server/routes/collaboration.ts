@@ -15,7 +15,22 @@ export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
     const user = req.user as SelectUser;
     try {
       const convos = await storage.getConversationsForUser(user.id);
-      res.json(convos);
+      const enriched = await Promise.all(
+        convos.map(async (c) => {
+          const [lastMessage, unreadCount] = await Promise.all([
+            storage.getLastMessageForConversation(c.id),
+            storage.getUnreadCountForParticipant(c.id, user.id),
+          ]);
+          return {
+            ...c,
+            lastMessage: lastMessage
+              ? { id: lastMessage.id, body: lastMessage.body, createdAt: lastMessage.createdAt, senderId: lastMessage.senderId }
+              : null,
+            unreadCount,
+          };
+        })
+      );
+      res.json(enriched);
     } catch (e) {
       console.error("Error fetching conversations:", e);
       res.status(500).json({ error: "Failed to fetch conversations" });
@@ -151,12 +166,52 @@ export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
         body: body.trim(),
       });
       const sender = await storage.getUser(user.id);
-      const payload = { ...msg, sender: sender ? { id: sender.id, username: sender.username, fullName: sender.fullName } : null };
+      const payload = { ...msg, conversationId: id, sender: sender ? { id: sender.id, username: sender.username, fullName: sender.fullName } : null };
       if (io) io.to(`conversation:${id}`).emit("new-message", payload);
       res.status(201).json(payload);
     } catch (e) {
       console.error("Error creating message:", e);
       res.status(500).json({ error: "Failed to send message" });
+    }
+  });
+
+  app.patch("/api/conversations/:id/messages/:msgId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const user = req.user as SelectUser;
+    const id = parseInt(req.params.id);
+    const msgId = parseInt(req.params.msgId);
+    const { body } = req.body;
+    if (!body || typeof body !== "string") return res.status(400).json({ error: "body required" });
+    try {
+      const existing = await storage.getMessage(msgId);
+      if (!existing || existing.conversationId !== id || existing.senderId !== user.id)
+        return res.status(403).json({ error: "Forbidden" });
+      const msg = await storage.updateMessage(msgId, { body: body.trim(), editedAt: new Date() });
+      const sender = await storage.getUser(user.id);
+      const payload = { ...msg, conversationId: id, sender: sender ? { id: sender.id, username: sender.username, fullName: sender.fullName } : null };
+      if (io) io.to(`conversation:${id}`).emit("message-updated", payload);
+      res.json(payload);
+    } catch (e) {
+      console.error("Error updating message:", e);
+      res.status(500).json({ error: "Failed to update message" });
+    }
+  });
+
+  app.delete("/api/conversations/:id/messages/:msgId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const user = req.user as SelectUser;
+    const id = parseInt(req.params.id);
+    const msgId = parseInt(req.params.msgId);
+    try {
+      const existing = await storage.getMessage(msgId);
+      if (!existing || existing.conversationId !== id || existing.senderId !== user.id)
+        return res.status(403).json({ error: "Forbidden" });
+      const msg = await storage.deleteMessage(msgId);
+      if (io) io.to(`conversation:${id}`).emit("message-deleted", { conversationId: id, messageId: msgId });
+      res.json({ deleted: true, messageId: msgId });
+    } catch (e) {
+      console.error("Error deleting message:", e);
+      res.status(500).json({ error: "Failed to delete message" });
     }
   });
 

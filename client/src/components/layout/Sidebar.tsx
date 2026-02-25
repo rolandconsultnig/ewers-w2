@@ -34,7 +34,6 @@ import {
   Sparkles,
   Bot,
   Mail,
-  Video,
   Globe,
   CheckCircle2,
   Download,

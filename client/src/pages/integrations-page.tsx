@@ -52,7 +52,6 @@ import {
   Settings,
   RocketIcon,
   Clock,
-  Settings,
   Key
 } from "lucide-react";
 import { SiTwilio, SiFacebook, SiInstagram, SiWhatsapp } from "react-icons/si";

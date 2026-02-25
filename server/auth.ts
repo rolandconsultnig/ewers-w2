@@ -22,6 +22,11 @@ const scryptAsync = promisify(scrypt);
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "ewers-jwt-secret";
 const JWT_EXPIRES = process.env.JWT_EXPIRES || "7d";
 
+function toSafeUser(user: SelectUser) {
+  const { password: _password, ...safe } = user as any;
+  return safe as Omit<SelectUser, "password">;
+}
+
 export function generateJWT(user: SelectUser): string {
   return jwt.sign(
     { id: user.id, username: user.username, role: user.role, securityLevel: user.securityLevel },
@@ -159,7 +164,7 @@ export function setupAuth(app: Express) {
 
     req.login(user, (err) => {
       if (err) return next(err);
-      res.status(201).json(user);
+      res.status(201).json(toSafeUser(user));
     });
   });
   
@@ -236,7 +241,7 @@ export function setupAuth(app: Express) {
       req.login(user, (loginErr) => {
         if (loginErr) return next(loginErr);
         const token = generateJWT(user);
-        res.status(200).json({ user, token });
+        res.status(200).json({ user: toSafeUser(user), token });
       });
     })(req, res, next);
   };
@@ -267,19 +272,19 @@ export function setupAuth(app: Express) {
   app.get("/api/user", (req, res) => {
     // Return 200 with null when not logged in (avoids 401 console noise on auth check)
     if (!req.isAuthenticated()) return res.status(200).json(null);
-    res.json(req.user);
+    res.json(toSafeUser(req.user as SelectUser));
   });
 
   // API auth aliases
   app.get("/api/auth/me", (req, res) => {
     if (!req.isAuthenticated()) return res.status(200).json(null);
-    res.json(req.user);
+    res.json(toSafeUser(req.user as SelectUser));
   });
 
   // Profile management - update own profile
   app.get("/api/user/profile", (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    res.json(req.user);
+    res.json(toSafeUser(req.user as SelectUser));
   });
 
   app.put("/api/user/profile", async (req, res) => {
@@ -298,7 +303,7 @@ export function setupAuth(app: Express) {
       updateData.password = await hashPassword(password);
     }
     const updated = await storage.updateUser(currentUser.id, updateData);
-    res.json(updated);
+    res.json(toSafeUser(updated));
   });
 
   app.get("/api/user/all", async (req, res) => {

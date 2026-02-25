@@ -4,8 +4,8 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "dev": "concurrently -n api,vite -c blue,green \"cross-env NODE_ENV=development PORT=4342 USE_VITE_DEV_SERVER=1 tsx server/index.ts\" \"vite\"",
-    "dev:api": "cross-env NODE_ENV=development PORT=4342 tsx server/index.ts",
+    "dev": "concurrently -n api,vite -c blue,green \"cross-env NODE_ENV=development PORT=4343 USE_VITE_DEV_SERVER=1 tsx server/index.ts\" \"vite\"",
+    "dev:api": "cross-env NODE_ENV=development PORT=4343 USE_VITE_DEV_SERVER=1 tsx server/index.ts",
     "dev:vite": "vite",
     "dev:prod": "npm run build && npm start",
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",

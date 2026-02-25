@@ -28,7 +28,7 @@ import type {
 } from "@shared/schema";
 import session from "express-session";
 import { db, pool } from "./db";
-import { eq, and, desc, gte, lte } from "drizzle-orm";
+import { eq, and, desc, gte, lte, gt, isNull } from "drizzle-orm";
 import connectPg from "connect-pg-simple";
 
 const PostgresSessionStore = connectPg(session);
@@ -174,6 +174,11 @@ export interface IStorage {
 
   getMessages(conversationId: number, limit?: number): Promise<Message[]>;
   createMessage(message: InsertMessage): Promise<Message>;
+  getMessage(id: number): Promise<Message | undefined>;
+  updateMessage(id: number, data: { body: string; editedAt?: Date }): Promise<Message>;
+  deleteMessage(id: number): Promise<Message>;
+  getLastMessageForConversation(conversationId: number): Promise<Message | undefined>;
+  getUnreadCountForParticipant(conversationId: number, userId: number): Promise<number>;
   getMessageAttachments(messageId: number): Promise<MessageAttachment[]>;
   createMessageAttachment(attachment: InsertMessageAttachment): Promise<MessageAttachment>;
 
@@ -256,9 +261,66 @@ export class DatabaseStorage implements IStorage {
     return db
       .select()
       .from(messages)
-      .where(eq(messages.conversationId, conversationId))
+      .where(and(eq(messages.conversationId, conversationId), isNull(messages.deletedAt)))
       .orderBy(desc(messages.createdAt))
       .limit(limit);
+  }
+
+  async getMessage(id: number): Promise<Message | undefined> {
+    const [row] = await db.select().from(messages).where(eq(messages.id, id));
+    return row;
+  }
+
+  async updateMessage(id: number, data: { body: string; editedAt?: Date }): Promise<Message> {
+    const [row] = await db
+      .update(messages)
+      .set({ body: data.body, editedAt: (data.editedAt ?? new Date()) as any })
+      .where(eq(messages.id, id))
+      .returning();
+    if (!row) throw new Error("Message not found");
+    return row;
+  }
+
+  async deleteMessage(id: number): Promise<Message> {
+    const [row] = await db
+      .update(messages)
+      .set({ deletedAt: new Date() as any })
+      .where(eq(messages.id, id))
+      .returning();
+    if (!row) throw new Error("Message not found");
+    return row;
+  }
+
+  async getLastMessageForConversation(conversationId: number): Promise<Message | undefined> {
+    const [row] = await db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.conversationId, conversationId), isNull(messages.deletedAt)))
+      .orderBy(desc(messages.createdAt))
+      .limit(1);
+    return row;
+  }
+
+  async getUnreadCountForParticipant(conversationId: number, userId: number): Promise<number> {
+    const [participant] = await db
+      .select()
+      .from(conversationParticipants)
+      .where(and(eq(conversationParticipants.conversationId, conversationId), eq(conversationParticipants.userId, userId)));
+    if (!participant) return 0;
+    const lastRead = participant.lastReadAt;
+    const conditions = [
+      eq(messages.conversationId, conversationId),
+      isNull(messages.deletedAt),
+    ];
+    if (lastRead) {
+      conditions.push(gt(messages.createdAt, lastRead));
+    }
+    const allInConvo = await db
+      .select({ id: messages.id, senderId: messages.senderId, createdAt: messages.createdAt })
+      .from(messages)
+      .where(and(...conditions));
+    const unread = allInConvo.filter((m) => m.senderId !== userId).length;
+    return unread;
   }
 
   async createMessage(message: InsertMessage): Promise<Message> {
