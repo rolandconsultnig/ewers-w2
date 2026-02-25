@@ -85,7 +85,10 @@ export default function Sidebar({ isMobileMenuOpen, closeMobileMenu }: SidebarPr
     },
     {
       id: "dataManagement",
-      title: t("layout.sidebar.dataManagement"),
+      title: (() => {
+        const label = t("layout.sidebar.dataManagement");
+        return label === "layout.sidebar.dataManagement" ? "Data Management" : label;
+      })(),
       items: [
         { path: "/data-collection", label: t("nav.dataCollection"), icon: <Download className="mr-3 h-5 w-5" /> },
         { path: "/data-processing", label: t("nav.dataProcessing"), icon: <Settings className="mr-3 h-5 w-5" /> },
@@ -153,7 +156,7 @@ export default function Sidebar({ isMobileMenuOpen, closeMobileMenu }: SidebarPr
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     mainNavigation: true,
     aiAssistant: true,
-    dataCollection: true,
+    dataManagement: true,
     riskAssessment: true,
     responseManagement: true,
     communications: true,
