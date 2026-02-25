@@ -24,6 +24,14 @@ import {
 } from "@/components/ui/select";
 import { Mail, Inbox, Send, Plus, Loader2 } from "lucide-react";
 import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
+
+function parseExternalEmails(raw: string): string[] {
+  return raw
+    .split(/[\s,;]+/)
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+}
 
 type Conversation = { id: number; type: string; title: string | null; incidentId: number | null; createdBy: number; createdAt: string };
 type Message = { id: number; body: string; senderId: number; createdAt: string; sender?: { fullName?: string; username?: string } };
@@ -31,10 +39,12 @@ type Message = { id: number; body: string; senderId: number; createdAt: string; 
 export default function EmailPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [selectedConvo, setSelectedConvo] = useState<Conversation | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [emailTab, setEmailTab] = useState<"inbox" | "sent">("inbox");
   const [toIds, setToIds] = useState<number[]>([]);
+  const [externalEmails, setExternalEmails] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
 
@@ -66,26 +76,54 @@ export default function EmailPage() {
     enabled: composeOpen,
   });
 
+  const sendExternalMutation = useMutation({
+    mutationFn: async (emails: string[]) => {
+      const res = await apiRequest("POST", "/api/email/send", {
+        to: emails,
+        subject: subject || "No subject",
+        body: body.trim(),
+      });
+      return res.json();
+    },
+  });
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/conversations", {
-        type: "email",
-        title: subject || "No subject",
-        participantIds: toIds,
-      });
-      const convo = await res.json();
-      if (body.trim()) {
-        await apiRequest("POST", `/api/conversations/${convo.id}/messages`, { body: body.trim() });
+      const externalList = parseExternalEmails(externalEmails);
+      const hasInternal = toIds.length > 0;
+      const hasExternal = externalList.length > 0;
+      if (!hasInternal && !hasExternal) throw new Error("Add at least one recipient (user or external email).");
+      if (hasExternal && externalList.length === 0) throw new Error("Enter at least one valid external email address.");
+
+      if (hasExternal) {
+        await sendExternalMutation.mutateAsync(externalList);
       }
-      return convo;
+      if (hasInternal) {
+        const res = await apiRequest("POST", "/api/conversations", {
+          type: "email",
+          title: subject || "No subject",
+          participantIds: toIds,
+        });
+        const convo = await res.json();
+        if (body.trim()) {
+          await apiRequest("POST", `/api/conversations/${convo.id}/messages`, { body: body.trim() });
+        }
+        return convo;
+      }
+      return null;
     },
     onSuccess: (data) => {
       setComposeOpen(false);
       setToIds([]);
+      setExternalEmails("");
       setSubject("");
       setBody("");
       refetchConvos();
-      setSelectedConvo(data);
+      if (data) setSelectedConvo(data);
+      else toast({ title: "Email sent", description: "Message sent to external recipient(s)." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Send failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -188,7 +226,8 @@ export default function EmailPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">To</label>
+              <label className="text-sm font-medium">To (internal users)</label>
+              <p className="text-xs text-muted-foreground mb-1">Select one or more project users from the list</p>
               <Select
                 onValueChange={(v) => {
                   const id = parseInt(v);
@@ -199,11 +238,11 @@ export default function EmailPage() {
                   <SelectValue placeholder="Select recipient" />
                 </SelectTrigger>
                 <SelectContent>
-                  {users
-                    .filter((u: any) => u.id !== user?.id)
-                    .map((u: any) => (
+                  {(users as { id: number; fullName?: string; username?: string; email?: string }[])
+                    .filter((u) => u.id !== user?.id)
+                    .map((u) => (
                       <SelectItem key={u.id} value={String(u.id)}>
-                        {u.fullName || u.username} ({u.email || "no email"})
+                        {u.fullName || u.username} {u.email ? `(${u.email})` : ""}
                       </SelectItem>
                     ))}
                 </SelectContent>
@@ -211,7 +250,7 @@ export default function EmailPage() {
               {toIds.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
                   {toIds.map((id) => {
-                    const u = users.find((x: any) => x.id === id);
+                    const u = (users as { id: number; fullName?: string; username?: string }[]).find((x) => x.id === id);
                     return (
                       <span
                         key={id}
@@ -219,6 +258,7 @@ export default function EmailPage() {
                       >
                         {u?.fullName || u?.username}
                         <button
+                          type="button"
                           onClick={() => setToIds((p) => p.filter((x) => x !== id))}
                           className="hover:text-destructive"
                         >
@@ -229,6 +269,16 @@ export default function EmailPage() {
                   })}
                 </div>
               )}
+            </div>
+            <div>
+              <label className="text-sm font-medium">Or send to external email addresses</label>
+              <Input
+                placeholder="e.g. partner@example.com, other@org.org"
+                value={externalEmails}
+                onChange={(e) => setExternalEmails(e.target.value)}
+                className="mt-1"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Comma-, space- or semicolon-separated. Uses the project email server (SMTP/SendGrid).</p>
             </div>
             <div>
               <label className="text-sm font-medium">Subject</label>
@@ -255,7 +305,10 @@ export default function EmailPage() {
             </Button>
             <Button
               onClick={() => createMutation.mutate()}
-              disabled={toIds.length === 0 || createMutation.isPending}
+              disabled={
+                (toIds.length === 0 && parseExternalEmails(externalEmails).length === 0) ||
+                createMutation.isPending
+              }
             >
               {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               Send

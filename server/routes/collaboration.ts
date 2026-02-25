@@ -7,6 +7,7 @@ import type { Server as SocketIOServer } from "socket.io";
 import { storage } from "../storage";
 import type { User as SelectUser } from "@shared/schema";
 import { signCallGuestToken, verifyCallGuestToken } from "../auth";
+import { sendEmail } from "../services/email-service";
 
 export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
   // --- CONVERSATIONS (Chat & Email) ---
@@ -81,6 +82,26 @@ export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
     } catch (e) {
       console.error("Error creating conversation:", e);
       res.status(500).json({ error: "Failed to create conversation" });
+    }
+  });
+
+  app.post("/api/email/send", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const { to, subject, body } = req.body || {};
+    const emails = Array.isArray(to) ? to : typeof to === "string" ? [to].filter(Boolean) : [];
+    const valid = emails
+      .map((e: string) => String(e).trim().toLowerCase())
+      .filter((e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (valid.length === 0) return res.status(400).json({ error: "At least one valid email address required" });
+    if (!subject || !String(subject).trim()) return res.status(400).json({ error: "Subject required" });
+    const text = body ? String(body).trim() : "";
+    try {
+      const ok = await sendEmail({ to: valid, subject: String(subject).trim(), text, html: text ? undefined : "<p></p>" });
+      if (!ok) return res.status(500).json({ error: "Failed to send email; check server mail configuration." });
+      res.json({ sent: true, to: valid });
+    } catch (e) {
+      console.error("Error sending external email:", e);
+      res.status(500).json({ error: "Failed to send email" });
     }
   });
 
