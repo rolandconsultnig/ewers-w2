@@ -378,7 +378,7 @@ export default function ReportIncidentPage() {
                                 <FormItem>
                                   <FormLabel>Actor name</FormLabel>
                                   <FormControl>
-                                    <Input placeholder="Optional" {...field} />
+                                    <Input placeholder="Actor name (optional)" {...field} />
                                   </FormControl>
                                   <FormMessage />
                                 </FormItem>
@@ -403,7 +403,7 @@ export default function ReportIncidentPage() {
                                 <FormItem>
                                   <FormLabel>Your name</FormLabel>
                                   <FormControl>
-                                    <Input placeholder="Optional" {...field} />
+                                    <Input placeholder="Your name (optional)" {...field} />
                                   </FormControl>
                                   <FormMessage />
                                 </FormItem>
@@ -416,7 +416,7 @@ export default function ReportIncidentPage() {
                                 <FormItem>
                                   <FormLabel>Phone</FormLabel>
                                   <FormControl>
-                                    <Input placeholder="Optional" {...field} />
+                                    <Input placeholder="Phone number (optional)" {...field} />
                                   </FormControl>
                                   <FormMessage />
                                 </FormItem>
@@ -431,7 +431,7 @@ export default function ReportIncidentPage() {
                                 <FormItem>
                                   <FormLabel>Email</FormLabel>
                                   <FormControl>
-                                    <Input type="email" placeholder="Optional" {...field} />
+                                    <Input type="email" placeholder="Email (optional)" {...field} />
                                   </FormControl>
                                   <FormMessage />
                                 </FormItem>

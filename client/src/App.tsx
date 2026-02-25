@@ -42,6 +42,12 @@ import ChatPage from "@/pages/chat-page";
 import EmailPage from "@/pages/email-page";
 import CallsPage from "@/pages/calls-page";
 import CallsJoinPage from "@/pages/calls-join-page";
+import ElectionMonitoringDashboard from "@/pages/election-monitoring/election-monitoring-dashboard";
+import ElectionElectionsPage from "@/pages/election-monitoring/election-elections-page";
+import ElectionPartiesPage from "@/pages/election-monitoring/election-parties-page";
+import ElectionPoliticiansPage from "@/pages/election-monitoring/election-politicians-page";
+import ElectionActorsPage from "@/pages/election-monitoring/election-actors-page";
+import ElectionViolencePage from "@/pages/election-monitoring/election-violence-page";
 import { ProtectedRoute, RoleProtectedRoute } from "./lib/protected-route";
 
 function Router() {
@@ -109,7 +115,15 @@ function Router() {
       <ProtectedRoute path="/integrations" component={IntegrationsPage} />
       <ProtectedRoute path="/reporting" component={ReportingPage} />
       <ProtectedRoute path="/settings" component={SettingsPage} />
-      
+
+      {/* Election Monitoring */}
+      <ProtectedRoute path="/election-monitoring" component={ElectionMonitoringDashboard} />
+      <ProtectedRoute path="/election-monitoring/elections" component={ElectionElectionsPage} />
+      <ProtectedRoute path="/election-monitoring/parties" component={ElectionPartiesPage} />
+      <ProtectedRoute path="/election-monitoring/politicians" component={ElectionPoliticiansPage} />
+      <ProtectedRoute path="/election-monitoring/actors" component={ElectionActorsPage} />
+      <ProtectedRoute path="/election-monitoring/violence" component={ElectionViolencePage} />
+
       <Route component={NotFound} />
     </Switch>
   );

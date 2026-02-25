@@ -321,7 +321,7 @@ export default function IntegrationsPage() {
           // Format data for Instagram API
           return apiRequest('POST', endpoint, { 
             caption: data.message,
-            mediaUrl: data.mediaUrl || 'https://via.placeholder.com/800x800.png',
+            mediaUrl: data.mediaUrl || '',
           });
           
         default:

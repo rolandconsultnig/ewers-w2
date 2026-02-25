@@ -38,7 +38,12 @@ import {
   CheckCircle2,
   Download,
   Mic,
-  Leaf
+  Leaf,
+  Vote,
+  UserCircle,
+  Building2,
+  Swords,
+  Calendar
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -94,6 +99,18 @@ export default function Sidebar({ isMobileMenuOpen, closeMobileMenu }: SidebarPr
         { path: "/data-processing", label: t("nav.dataProcessing"), icon: <Settings className="mr-3 h-5 w-5" /> },
         { path: "/collected-data", label: "Collected Data", icon: <Database className="mr-3 h-5 w-5" /> },
         { path: "/processed-data", label: "Processed Data", icon: <Brain className="mr-3 h-5 w-5" /> },
+      ]
+    },
+    {
+      id: "electionMonitoring",
+      title: "Election Monitoring",
+      items: [
+        { path: "/election-monitoring", label: "Dashboard", icon: <Vote className="mr-3 h-5 w-5" /> },
+        { path: "/election-monitoring/elections", label: "Elections", icon: <Calendar className="mr-3 h-5 w-5" /> },
+        { path: "/election-monitoring/parties", label: "Political Parties", icon: <Building2 className="mr-3 h-5 w-5" /> },
+        { path: "/election-monitoring/politicians", label: "Politicians", icon: <UserCircle className="mr-3 h-5 w-5" /> },
+        { path: "/election-monitoring/actors", label: "Actors & Non-Actors", icon: <Users className="mr-3 h-5 w-5" /> },
+        { path: "/election-monitoring/violence", label: "Violence & Events", icon: <Swords className="mr-3 h-5 w-5" /> },
       ]
     },
     {
@@ -157,6 +174,7 @@ export default function Sidebar({ isMobileMenuOpen, closeMobileMenu }: SidebarPr
     mainNavigation: true,
     aiAssistant: true,
     dataManagement: true,
+    electionMonitoring: true,
     riskAssessment: true,
     responseManagement: true,
     communications: true,

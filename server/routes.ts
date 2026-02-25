@@ -37,6 +37,7 @@ import { setupAdvancedSearchRoutes } from "./routes/advanced-search";
 import { setupResponseTeamMembersRoutes } from "./routes/response-team-members";
 import { setupVoiceIncidentRoutes } from "./routes/voice-incident";
 import { setupCollaborationRoutes } from "./routes/collaboration";
+import { setupElectionMonitoringRoutes } from "./routes/election-monitoring";
 import { db } from "./db";
 import * as notificationService from "./services/notification-service";
 import { getSocialPosts, fetchFromWebAndStore } from "./services/social-posts-service";
@@ -224,6 +225,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register collaboration routes (chat, email, calls)
   setupCollaborationRoutes(app, io);
+
+  // Election Monitoring (pre-election, post-election, parties, politicians, actors, violence)
+  setupElectionMonitoringRoutes(app);
 
   // Data Sources API
   app.get("/api/data-sources", async (req, res) => {

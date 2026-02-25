@@ -456,7 +456,7 @@ export default function CallsPage() {
                 onValueChange={(v) => setConversationId(v === "none" ? null : parseInt(v))}
               >
                 <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="None" />
+                  <SelectValue placeholder="Select conversation" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
@@ -490,7 +490,7 @@ export default function CallsPage() {
             <div>
               <label className="text-sm font-medium">Call ID</label>
               <Input
-                placeholder="Enter call ID"
+                placeholder="e.g. 12345"
                 type="number"
                 value={joinCallId}
                 onChange={(e) => setJoinCallId(e.target.value)}

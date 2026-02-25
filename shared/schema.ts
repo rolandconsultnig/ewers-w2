@@ -1075,3 +1075,131 @@ export const insertCallParticipantSchema = createInsertSchema(callParticipants).
 
 export type InsertCallParticipant = z.infer<typeof insertCallParticipantSchema>;
 export type CallParticipant = typeof callParticipants.$inferSelect;
+
+// --- Election Monitoring Module ---
+export const elections = pgTable("elections", {
+  id: serial("id").notNull().primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // presidential, gubernatorial, senate, house, state_assembly, lga
+  region: text("region").notNull().default("Nigeria"),
+  state: text("state"),
+  electionDate: date("election_date").notNull(),
+  status: text("status").notNull().default("pre_election"), // pre_election, ongoing, post_election, completed
+  description: text("description"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertElectionSchema = createInsertSchema(elections).pick({
+  name: true,
+  type: true,
+  region: true,
+  state: true,
+  electionDate: true,
+  status: true,
+  description: true,
+});
+export type InsertElection = z.infer<typeof insertElectionSchema>;
+export type Election = typeof elections.$inferSelect;
+
+export const politicalParties = pgTable("political_parties", {
+  id: serial("id").notNull().primaryKey(),
+  name: text("name").notNull(),
+  abbreviation: text("abbreviation"),
+  logoUrl: text("logo_url"),
+  description: text("description"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertPoliticalPartySchema = createInsertSchema(politicalParties).pick({
+  name: true,
+  abbreviation: true,
+  logoUrl: true,
+  description: true,
+});
+export type InsertPoliticalParty = z.infer<typeof insertPoliticalPartySchema>;
+export type PoliticalParty = typeof politicalParties.$inferSelect;
+
+export const politicians = pgTable("politicians", {
+  id: serial("id").notNull().primaryKey(),
+  fullName: text("full_name").notNull(),
+  partyId: integer("party_id").references(() => politicalParties.id),
+  electionId: integer("election_id").references(() => elections.id),
+  position: text("position"), // e.g. Presidential Candidate, Governor, Senator
+  state: text("state"),
+  lga: text("lga"),
+  photoUrl: text("photo_url"),
+  bio: text("bio"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertPoliticianSchema = createInsertSchema(politicians).pick({
+  fullName: true,
+  partyId: true,
+  electionId: true,
+  position: true,
+  state: true,
+  lga: true,
+  photoUrl: true,
+  bio: true,
+});
+export type InsertPolitician = z.infer<typeof insertPoliticianSchema>;
+export type Politician = typeof politicians.$inferSelect;
+
+export const electionActors = pgTable("election_actors", {
+  id: serial("id").notNull().primaryKey(),
+  electionId: integer("election_id").references(() => elections.id).notNull(),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // actor, non_actor - e.g. INEC, security_agency, CSO, media, observer
+  role: text("role"),
+  description: text("description"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertElectionActorSchema = createInsertSchema(electionActors).pick({
+  electionId: true,
+  name: true,
+  type: true,
+  role: true,
+  description: true,
+});
+export type InsertElectionActor = z.infer<typeof insertElectionActorSchema>;
+export type ElectionActor = typeof electionActors.$inferSelect;
+
+export const electionEvents = pgTable("election_events", {
+  id: serial("id").notNull().primaryKey(),
+  electionId: integer("election_id").references(() => elections.id).notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  type: text("type").notNull(), // violence, intimidation, fraud, hate_speech, violation, other
+  severity: text("severity").notNull().default("medium"), // low, medium, high, critical
+  location: text("location"),
+  state: text("state"),
+  lga: text("lga"),
+  eventDate: timestamp("event_date").notNull().defaultNow(),
+  partyId: integer("party_id").references(() => politicalParties.id),
+  politicianId: integer("politician_id").references(() => politicians.id),
+  actorId: integer("actor_id").references(() => electionActors.id),
+  incidentId: integer("incident_id").references(() => incidents.id),
+  reportedBy: integer("reported_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertElectionEventSchema = createInsertSchema(electionEvents).pick({
+  electionId: true,
+  title: true,
+  description: true,
+  type: true,
+  severity: true,
+  location: true,
+  state: true,
+  lga: true,
+  eventDate: true,
+  partyId: true,
+  politicianId: true,
+  actorId: true,
+  incidentId: true,
+  reportedBy: true,
+});
+export type InsertElectionEvent = z.infer<typeof insertElectionEventSchema>;
+export type ElectionEvent = typeof electionEvents.$inferSelect;

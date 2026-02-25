@@ -1,4 +1,4 @@
-import { users, dataSources, collectedData, processedData, incidents, alerts, responseActivities, responseTeams, riskIndicators, riskAnalyses, responsePlans, feedbacks, reports, settings, accessLogs, apiKeys, webhooks, cases, caseNotes, conversations, conversationParticipants, messages, messageAttachments, callSessions, callParticipants } from "@shared/schema";
+import { users, dataSources, collectedData, processedData, incidents, alerts, responseActivities, responseTeams, riskIndicators, riskAnalyses, responsePlans, feedbacks, reports, settings, accessLogs, apiKeys, webhooks, cases, caseNotes, conversations, conversationParticipants, messages, messageAttachments, callSessions, callParticipants, elections, politicalParties, politicians, electionActors, electionEvents } from "@shared/schema";
 import type { 
   User, InsertUser, 
   DataSource, InsertDataSource, 
@@ -24,7 +24,12 @@ import type {
   Message, InsertMessage,
   MessageAttachment, InsertMessageAttachment,
   CallSession, InsertCallSession,
-  CallParticipant, InsertCallParticipant
+  CallParticipant, InsertCallParticipant,
+  Election, InsertElection,
+  PoliticalParty, InsertPoliticalParty,
+  Politician, InsertPolitician,
+  ElectionActor, InsertElectionActor,
+  ElectionEvent, InsertElectionEvent
 } from "@shared/schema";
 import session from "express-session";
 import { db, pool } from "./db";
@@ -189,6 +194,22 @@ export interface IStorage {
   addCallParticipant(participant: InsertCallParticipant): Promise<CallParticipant>;
   leaveCallParticipant(callSessionId: number, userId: number): Promise<CallParticipant | undefined>;
   leaveCallParticipantByGuestId(callSessionId: number, participantId: number): Promise<CallParticipant | undefined>;
+
+  getElections(): Promise<Election[]>;
+  getElection(id: number): Promise<Election | undefined>;
+  createElection(election: InsertElection): Promise<Election>;
+  updateElection(id: number, data: Partial<Election>): Promise<Election>;
+  getPoliticalParties(): Promise<PoliticalParty[]>;
+  createPoliticalParty(party: InsertPoliticalParty): Promise<PoliticalParty>;
+  updatePoliticalParty(id: number, data: Partial<PoliticalParty>): Promise<PoliticalParty>;
+  getPoliticians(filters?: { electionId?: number; partyId?: number }): Promise<Politician[]>;
+  getPolitician(id: number): Promise<Politician | undefined>;
+  createPolitician(p: InsertPolitician): Promise<Politician>;
+  updatePolitician(id: number, data: Partial<Politician>): Promise<Politician>;
+  getElectionActors(electionId: number): Promise<ElectionActor[]>;
+  createElectionActor(a: InsertElectionActor): Promise<ElectionActor>;
+  getElectionEvents(electionId: number, filters?: { type?: string }): Promise<ElectionEvent[]>;
+  createElectionEvent(e: InsertElectionEvent): Promise<ElectionEvent>;
 
   // Session store
   sessionStore: any;
@@ -396,6 +417,75 @@ export class DatabaseStorage implements IStorage {
       .set({ leftAt: new Date() as any })
       .where(and(eq(callParticipants.callSessionId, callSessionId), eq(callParticipants.id, participantId)))
       .returning();
+    return row;
+  }
+
+  async getElections(): Promise<Election[]> {
+    return db.select().from(elections).orderBy(desc(elections.electionDate));
+  }
+  async getElection(id: number): Promise<Election | undefined> {
+    const [row] = await db.select().from(elections).where(eq(elections.id, id));
+    return row;
+  }
+  async createElection(election: InsertElection): Promise<Election> {
+    const [row] = await db.insert(elections).values({ ...election, updatedAt: new Date() } as any).returning();
+    return row;
+  }
+  async updateElection(id: number, data: Partial<Election>): Promise<Election> {
+    const [row] = await db.update(elections).set({ ...data, updatedAt: new Date() } as any).where(eq(elections.id, id)).returning();
+    if (!row) throw new Error("Election not found");
+    return row;
+  }
+  async getPoliticalParties(): Promise<PoliticalParty[]> {
+    return db.select().from(politicalParties).orderBy(politicalParties.name);
+  }
+  async createPoliticalParty(party: InsertPoliticalParty): Promise<PoliticalParty> {
+    const [row] = await db.insert(politicalParties).values(party as any).returning();
+    return row;
+  }
+  async updatePoliticalParty(id: number, data: Partial<PoliticalParty>): Promise<PoliticalParty> {
+    const [row] = await db.update(politicalParties).set(data as any).where(eq(politicalParties.id, id)).returning();
+    if (!row) throw new Error("Political party not found");
+    return row;
+  }
+  async getPoliticians(filters?: { electionId?: number; partyId?: number }): Promise<Politician[]> {
+    if (filters?.electionId != null && filters?.partyId != null) {
+      return db.select().from(politicians).where(and(eq(politicians.electionId, filters.electionId), eq(politicians.partyId, filters.partyId))).orderBy(desc(politicians.createdAt));
+    }
+    if (filters?.electionId != null) {
+      return db.select().from(politicians).where(eq(politicians.electionId, filters.electionId)).orderBy(desc(politicians.createdAt));
+    }
+    if (filters?.partyId != null) {
+      return db.select().from(politicians).where(eq(politicians.partyId, filters.partyId)).orderBy(desc(politicians.createdAt));
+    }
+    return db.select().from(politicians).orderBy(desc(politicians.createdAt));
+  }
+  async getPolitician(id: number): Promise<Politician | undefined> {
+    const [row] = await db.select().from(politicians).where(eq(politicians.id, id));
+    return row;
+  }
+  async createPolitician(p: InsertPolitician): Promise<Politician> {
+    const [row] = await db.insert(politicians).values(p as any).returning();
+    return row;
+  }
+  async updatePolitician(id: number, data: Partial<Politician>): Promise<Politician> {
+    const [row] = await db.update(politicians).set(data as any).where(eq(politicians.id, id)).returning();
+    if (!row) throw new Error("Politician not found");
+    return row;
+  }
+  async getElectionActors(electionId: number): Promise<ElectionActor[]> {
+    return db.select().from(electionActors).where(eq(electionActors.electionId, electionId)).orderBy(electionActors.name);
+  }
+  async createElectionActor(a: InsertElectionActor): Promise<ElectionActor> {
+    const [row] = await db.insert(electionActors).values(a as any).returning();
+    return row;
+  }
+  async getElectionEvents(electionId: number, filters?: { type?: string }): Promise<ElectionEvent[]> {
+    if (filters?.type) return db.select().from(electionEvents).where(and(eq(electionEvents.electionId, electionId), eq(electionEvents.type, filters.type))).orderBy(desc(electionEvents.eventDate));
+    return db.select().from(electionEvents).where(eq(electionEvents.electionId, electionId)).orderBy(desc(electionEvents.eventDate));
+  }
+  async createElectionEvent(e: InsertElectionEvent): Promise<ElectionEvent> {
+    const [row] = await db.insert(electionEvents).values(e as any).returning();
     return row;
   }
 
