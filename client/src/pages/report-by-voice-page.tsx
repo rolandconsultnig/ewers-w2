@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { queryClient } from "@/lib/queryClient";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -76,6 +77,8 @@ export default function ReportByVoicePage() {
         title: "Report submitted",
         description: "Thank you. Your voice report has been received and will be reviewed.",
       });
+      queryClient.invalidateQueries({ queryKey: ["/api/public/incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       setSuccess(true);
       form.reset();
       setAudioBlob(null);

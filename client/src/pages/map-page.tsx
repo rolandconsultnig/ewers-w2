@@ -193,6 +193,8 @@ export default function MapPage() {
 
   const { data: incidents } = useQuery<Incident[]>({
     queryKey: ["/api/public/incidents"],
+    refetchInterval: 10000,
+    refetchIntervalInBackground: true,
   });
 
   const visibleIncidents = pinnedOnly ? (incidents || []).filter((i) => i.isPinned) : incidents;

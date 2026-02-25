@@ -343,6 +343,8 @@ export default function NigeriaMap({
   const { data: fetchedIncidents } = useQuery<Incident[]>({
     queryKey: ["/api/public/incidents"],
     enabled: showIncidents && !propIncidents && mapReady,
+    refetchInterval: 10000,
+    refetchIntervalInBackground: true,
     queryFn: async () => {
       // Prefer authenticated incidents endpoint if available, fall back to public.
       const res = await fetch("/api/incidents", { credentials: "include" });

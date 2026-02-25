@@ -3,7 +3,7 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { useI18n } from "@/contexts/I18nContext";
@@ -105,6 +105,8 @@ export default function ReportIncidentPage() {
         description: "Thank you for your report. Officials will review it shortly.",
       });
       form.reset();
+      queryClient.invalidateQueries({ queryKey: ["/api/public/incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       // Show success state
       setIsSubmitSuccess(true);
     },

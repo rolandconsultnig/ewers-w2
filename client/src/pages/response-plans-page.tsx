@@ -320,36 +320,34 @@ export default function ResponsePlansPage() {
     <MainLayout title="Inter-Agency Portal">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div className="flex flex-wrap items-center gap-3">
-          <TabsList>
-            <TabsTrigger 
-              value="active" 
-              onClick={() => setSelectedTab("active")}
-              className={selectedTab === "active" ? "bg-primary text-primary-foreground" : ""}
-            >
-              Active
-            </TabsTrigger>
-            <TabsTrigger 
-              value="draft" 
-              onClick={() => setSelectedTab("draft")}
-              className={selectedTab === "draft" ? "bg-primary text-primary-foreground" : ""}
-            >
-              Draft
-            </TabsTrigger>
-            <TabsTrigger 
-              value="completed" 
-              onClick={() => setSelectedTab("completed")}
-              className={selectedTab === "completed" ? "bg-primary text-primary-foreground" : ""}
-            >
-              Completed
-            </TabsTrigger>
-            <TabsTrigger 
-              value="all" 
-              onClick={() => setSelectedTab("all")}
-              className={selectedTab === "all" ? "bg-primary text-primary-foreground" : ""}
-            >
-              All Plans
-            </TabsTrigger>
-          </TabsList>
+          <Tabs value={selectedTab} onValueChange={setSelectedTab}>
+            <TabsList>
+              <TabsTrigger 
+                value="active"
+                className={selectedTab === "active" ? "bg-primary text-primary-foreground" : ""}
+              >
+                Active
+              </TabsTrigger>
+              <TabsTrigger 
+                value="draft"
+                className={selectedTab === "draft" ? "bg-primary text-primary-foreground" : ""}
+              >
+                Draft
+              </TabsTrigger>
+              <TabsTrigger 
+                value="completed"
+                className={selectedTab === "completed" ? "bg-primary text-primary-foreground" : ""}
+              >
+                Completed
+              </TabsTrigger>
+              <TabsTrigger 
+                value="all"
+                className={selectedTab === "all" ? "bg-primary text-primary-foreground" : ""}
+              >
+                All Plans
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
           
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-neutral-400" />
