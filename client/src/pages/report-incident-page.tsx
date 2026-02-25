@@ -5,7 +5,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { insertIncidentSchema } from "@shared/schema";
 import { Link } from "wouter";
 import { useI18n } from "@/contexts/I18nContext";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
@@ -22,11 +21,11 @@ import { ArrowLeft, FileText, MapPin, AlertTriangle, User, Mic, MicOff } from "l
 // Import the IPCR logo
 import ipcr_logo from "@assets/Institute-For-Peace-And-Conflict-Resolution.jpg";
 
-// Create a citizen incident report schema
+// Public incident report: only incident details required; contact and actor info optional
 const publicIncidentSchema = z.object({
-  title: z.string().min(5, "Title must be at least 5 characters"),
-  description: z.string().min(10, "Please provide a detailed description"),
-  location: z.string().min(3, "Location must be at least 3 characters"),
+  title: z.string().min(3, "Title must be at least 3 characters"),
+  description: z.string().min(10, "Please provide a short description (at least 10 characters)"),
+  location: z.string().min(2, "Location is required (e.g. town or area)"),
   region: z.string().min(2, "Please select a region"),
   category: z.enum([
     "violence",
@@ -37,13 +36,11 @@ const publicIncidentSchema = z.object({
     "sgbv",
     "conflict",
   ]),
-  actorType: z.enum(["state", "non-state"], {
-    required_error: "Please select an actor type",
-  }),
-  actorName: z.string().min(2, "Actor name must be at least 2 characters"),
-  contactName: z.string().min(2, "Your name must be at least 2 characters"),
-  contactEmail: z.string().email("Please provide a valid email").optional(),
-  contactPhone: z.string().min(8, "Please provide a valid phone number"),
+  actorType: z.enum(["state", "non-state", "skip"]).optional(),
+  actorName: z.string().optional(),
+  contactName: z.string().optional(),
+  contactEmail: z.string().email("Please provide a valid email").optional().or(z.literal("")),
+  contactPhone: z.string().optional(),
 });
 
 type PublicIncidentFormValues = z.infer<typeof publicIncidentSchema>;
@@ -69,32 +66,37 @@ export default function ReportIncidentPage() {
     },
   });
 
-  // Mutation for submitting the incident
+  // Mutation for submitting the incident (no login or personal details required)
   const reportIncidentMutation = useMutation({
     mutationFn: async (data: PublicIncidentFormValues) => {
-      // Format the data for the API
+      const actorType = data.actorType && data.actorType !== "skip" ? data.actorType : undefined;
       const incidentData = {
-        ...data,
-        status: "pending", // Incidents from public start as pending until verified
+        title: data.title,
+        description: data.description,
+        location: data.location,
+        region: data.region,
         category: data.category,
+        status: "pending",
         reportedAt: new Date().toISOString(),
-        locationMetadata: {
-          coordinates: data.location,
-          region: data.region
-        },
+        locationMetadata: { coordinates: data.location, region: data.region },
         verificationStatus: "unverified",
-        actors: {
-          type: data.actorType,
-          name: data.actorName
-        },
+        actors: { type: actorType, name: (data.actorName || "").trim() },
         reporterInfo: {
-          name: data.contactName,
-          email: data.contactEmail || "",
-          phone: data.contactPhone
-        }
+          name: (data.contactName || "").trim(),
+          email: (data.contactEmail && data.contactEmail.trim()) || "",
+          phone: (data.contactPhone || "").trim(),
+        },
       };
-      
-      const res = await apiRequest("POST", "/api/public/incidents", incidentData);
+      const res = await fetch("/api/public/incidents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(incidentData),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || res.statusText || "Failed to submit");
+      }
       return await res.json();
     },
     onSuccess: () => {
@@ -176,8 +178,8 @@ export default function ReportIncidentPage() {
             <>
               <div className="mb-8 text-center">
                 <h1 className="text-3xl font-bold text-gray-900 mb-2">Report an Incident</h1>
-                <p className="text-gray-600">
-                  Help us build peace by reporting incidents of conflict or violence. Your information will be kept confidential.
+                <p className="text-gray-600 max-w-xl mx-auto">
+                  You can report quickly with just what happened and where. No account or personal details required—only add contact info if you want follow-up.
                 </p>
               </div>
 
@@ -185,7 +187,7 @@ export default function ReportIncidentPage() {
                 <CardHeader className="bg-gradient-to-r from-blue-500 to-sky-500 text-white">
                   <CardTitle>Incident Report Form</CardTitle>
                   <CardDescription className="text-white opacity-90">
-                    Please provide as much detail as possible
+                    Only the fields below are required. You can submit without giving your name or contact.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-6">
@@ -331,46 +333,45 @@ export default function ReportIncidentPage() {
                           )}
                         />
 
-                        <div className="pt-4">
-                          <h3 className="text-lg font-medium flex items-center gap-2 mb-4">
-                            <User className="h-5 w-5 text-blue-500" />
-                            Actor Information
+                        <div className="pt-4 border-t border-gray-100">
+                          <h3 className="text-lg font-medium flex items-center gap-2 mb-1">
+                            <User className="h-5 w-5 text-gray-400" />
+                            Optional: Who was involved?
                           </h3>
-
+                          <p className="text-sm text-gray-500 mb-4">
+                            Only if you know and want to specify—not required to submit.
+                          </p>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <FormField
                               control={form.control}
                               name="actorType"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Actor Type</FormLabel>
-                                  <Select 
-                                    onValueChange={field.onChange} 
-                                    defaultValue={field.value}
-                                  >
+                                  <FormLabel>Actor type</FormLabel>
+                                  <Select onValueChange={field.onChange} value={field.value ?? "skip"}>
                                     <FormControl>
                                       <SelectTrigger>
-                                        <SelectValue placeholder="Select actor type" />
+                                        <SelectValue placeholder="Skip (optional)" />
                                       </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
-                                      <SelectItem value="state">State Actor (Government, Military, etc.)</SelectItem>
-                                      <SelectItem value="non-state">Non-State Actor (Rebel group, Community, etc.)</SelectItem>
+                                      <SelectItem value="skip">Skip (optional)</SelectItem>
+                                      <SelectItem value="state">State (Government, Military, etc.)</SelectItem>
+                                      <SelectItem value="non-state">Non-state (Group, Community, etc.)</SelectItem>
                                     </SelectContent>
                                   </Select>
                                   <FormMessage />
                                 </FormItem>
                               )}
                             />
-                            
                             <FormField
                               control={form.control}
                               name="actorName"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Actor Name</FormLabel>
+                                  <FormLabel>Actor name</FormLabel>
                                   <FormControl>
-                                    <Input placeholder="Specify the name of the actor" {...field} />
+                                    <Input placeholder="Optional" {...field} />
                                   </FormControl>
                                   <FormMessage />
                                 </FormItem>
@@ -379,54 +380,51 @@ export default function ReportIncidentPage() {
                           </div>
                         </div>
 
-                        <div className="pt-4">
-                          <h3 className="text-lg font-medium flex items-center gap-2 mb-4">
-                            <FileText className="h-5 w-5 text-green-500" />
-                            Your Contact Information
+                        <div className="pt-4 border-t border-gray-100">
+                          <h3 className="text-lg font-medium flex items-center gap-2 mb-1">
+                            <FileText className="h-5 w-5 text-gray-400" />
+                            Optional: Your contact (for follow-up only)
                           </h3>
                           <p className="text-sm text-gray-500 mb-4">
-                            This information will be kept confidential and only used if officials need to follow up.
+                            Leave blank to report anonymously. We only use this if officials need to contact you.
                           </p>
-
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <FormField
                               control={form.control}
                               name="contactName"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Your Name</FormLabel>
+                                  <FormLabel>Your name</FormLabel>
                                   <FormControl>
-                                    <Input placeholder="Your full name" {...field} />
+                                    <Input placeholder="Optional" {...field} />
                                   </FormControl>
                                   <FormMessage />
                                 </FormItem>
                               )}
                             />
-                            
                             <FormField
                               control={form.control}
                               name="contactPhone"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Phone Number</FormLabel>
+                                  <FormLabel>Phone</FormLabel>
                                   <FormControl>
-                                    <Input placeholder="Your contact number" {...field} />
+                                    <Input placeholder="Optional" {...field} />
                                   </FormControl>
                                   <FormMessage />
                                 </FormItem>
                               )}
                             />
                           </div>
-
                           <div className="mt-4">
                             <FormField
                               control={form.control}
                               name="contactEmail"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Email Address (Optional)</FormLabel>
+                                  <FormLabel>Email</FormLabel>
                                   <FormControl>
-                                    <Input placeholder="Your email address" {...field} />
+                                    <Input type="email" placeholder="Optional" {...field} />
                                   </FormControl>
                                   <FormMessage />
                                 </FormItem>

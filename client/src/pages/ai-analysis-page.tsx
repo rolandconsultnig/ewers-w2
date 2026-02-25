@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import MainLayout from "@/components/layout/MainLayout";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -763,11 +764,18 @@ export default function AiAnalysisPage() {
         <TabsContent value="peace-indicators">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center">
-                <Globe className="h-5 w-5 mr-2 text-green-500" />
-                Peace Opportunity Indicators
-              </CardTitle>
-              <CardDescription>Predict windows of opportunity for peace initiatives and conflict resolution</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center">
+                    <Globe className="h-5 w-5 mr-2 text-green-500" />
+                    Peace Opportunity Indicators
+                  </CardTitle>
+                  <CardDescription>Predict windows of opportunity for peace initiatives and conflict resolution</CardDescription>
+                </div>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/peace-indicators">Open full Peace Indicators page →</Link>
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">

@@ -255,19 +255,34 @@ export function setupAuth(app: Express) {
     res.status(200).json({ token, expiresIn: JWT_EXPIRES });
   });
 
-  app.post("/api/logout", (req, res, next) => {
-    req.logout((err) => {
-      if (err) return next(err);
-      res.sendStatus(200);
-    });
-  });
+  const clearSessionCookie = (res: express.Response) => {
+    const opts: { path: string; httpOnly?: boolean; sameSite?: boolean | 'lax'; secure?: boolean } = { path: '/' };
+    if (sessionSettings.cookie) {
+      opts.httpOnly = true;
+      opts.sameSite = sessionSettings.cookie.sameSite as 'lax';
+      if (sessionSettings.cookie.secure) opts.secure = true;
+    }
+    res.clearCookie('connect.sid', opts);
+  };
 
-  app.post("/api/auth/logout", (req, res, next) => {
+  const handleLogout = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     req.logout((err) => {
       if (err) return next(err);
-      res.sendStatus(200);
+      clearSessionCookie(res);
+      const s = req.session as express.Session & { destroy?: (cb: (err?: Error) => void) => void };
+      if (s && typeof s.destroy === "function") {
+        s.destroy((destroyErr) => {
+          if (destroyErr) return next(destroyErr);
+          res.sendStatus(200);
+        });
+      } else {
+        res.sendStatus(200);
+      }
     });
-  });
+  };
+
+  app.post("/api/logout", handleLogout);
+  app.post("/api/auth/logout", handleLogout);
 
   app.get("/api/user", (req, res) => {
     // Return 200 with null when not logged in (avoids 401 console noise on auth check)

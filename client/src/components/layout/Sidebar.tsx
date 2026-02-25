@@ -37,7 +37,8 @@ import {
   Globe,
   CheckCircle2,
   Download,
-  Mic
+  Mic,
+  Leaf
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -79,6 +80,7 @@ export default function Sidebar({ isMobileMenuOpen, closeMobileMenu }: SidebarPr
         { path: "/ai-analysis", label: t("nav.aiAnalysis"), icon: <Sparkles className="mr-3 h-5 w-5" /> },
         { path: "/ai-prediction", label: t("nav.predictiveModels"), icon: <Bot className="mr-3 h-5 w-5" /> },
         { path: "/ai-advisor", label: t("nav.responseAdvisor"), icon: <Globe className="mr-3 h-5 w-5" /> },
+        { path: "/peace-indicators", label: "Peace Opportunity Indicators", icon: <Leaf className="mr-3 h-5 w-5" /> },
       ]
     },
     {

@@ -48,7 +48,10 @@ import {
   getExecutiveKpis,
   getRegionalHeatMap,
   getTrendData,
+  getVulnerabilityResilienceMap,
 } from "./services/enterprise-analytics";
+import { runScenario } from "./services/scenario-simulation-service";
+import * as thresholdAlertService from "./services/threshold-alert-service";
 import { getSlaStatus, checkAndEscalateBreachedAlerts } from "./services/escalation-service";
 import { getSystemHealth } from "./services/health-service";
 import * as auditService from "./services/audit-service";
@@ -69,6 +72,7 @@ import {
   alertTemplates,
   riskZones,
   escalationRules,
+  thresholdAlertRules,
   accessLogs,
 } from "@shared/schema";
 import { desc, eq, count } from "drizzle-orm";
@@ -878,6 +882,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/enterprise/vulnerability-map", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const data = await getVulnerabilityResilienceMap();
+      res.json(data);
+    } catch (error) {
+      console.error("Error fetching vulnerability map:", error);
+      res.status(500).json({ error: "Failed to fetch vulnerability map" });
+    }
+  });
+
   app.get("/api/enterprise/trends", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
@@ -1051,6 +1066,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const id = parseInt(req.params.id);
     await db.delete(escalationRules).where(eq(escalationRules.id, id));
     res.status(204).send();
+  });
+
+  // Enterprise: Threshold alert rules CRUD + evaluate
+  app.get("/api/enterprise/threshold-rules", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const items = await thresholdAlertService.getThresholdRules();
+      res.json(items);
+    } catch (e) {
+      console.error("Error fetching threshold rules:", e);
+      res.status(500).json({ error: "Failed to fetch threshold rules" });
+    }
+  });
+  app.post("/api/enterprise/threshold-rules", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const created = await thresholdAlertService.createThresholdRule(req.body);
+      res.status(201).json(created);
+    } catch (e) {
+      console.error("Error creating threshold rule:", e);
+      res.status(500).json({ error: "Failed to create threshold rule" });
+    }
+  });
+  app.put("/api/enterprise/threshold-rules/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const id = parseInt(req.params.id);
+    const updated = await thresholdAlertService.updateThresholdRule(id, req.body);
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
+  });
+  app.delete("/api/enterprise/threshold-rules/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const id = parseInt(req.params.id);
+    const ok = await thresholdAlertService.deleteThresholdRule(id);
+    if (!ok) return res.status(404).json({ error: "Not found" });
+    res.status(204).send();
+  });
+  app.post("/api/enterprise/threshold-rules/evaluate", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const result = await thresholdAlertService.evaluateThresholdRules();
+      res.json(result);
+    } catch (e) {
+      console.error("Error evaluating threshold rules:", e);
+      res.status(500).json({ error: "Failed to evaluate threshold rules" });
+    }
   });
 
   // Data collection file import (CSV/JSON parse and store in collected_data)
@@ -1258,11 +1319,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/public/incidents", async (req, res) => {
     try {
-      // Extract the necessary incident data from the request
-      const { 
-        title, description, location, region, actorType, actorName,
-        contactName, contactEmail, contactPhone, category
+      const {
+        title,
+        description,
+        location,
+        region,
+        actorType,
+        actorName,
+        contactName,
+        contactEmail,
+        contactPhone,
+        category,
+        reporterInfo,
+        actors,
       } = req.body;
+
+      // Support both flat body and nested reporterInfo/actors from client
+      const reporter = reporterInfo ?? {
+        name: contactName ?? "",
+        email: contactEmail ?? "",
+        phone: contactPhone ?? "",
+      };
+      const actorData = actors ?? {
+        type: actorType ?? undefined,
+        name: actorName ?? "",
+      };
 
       const users = await storage.getAllUsers();
       const reporterUser = users.find((u) => u.role === "admin") ?? users[0];
@@ -1273,16 +1354,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const coordinates = {
         lat: 0,
         lng: 0,
-        address: location,
-        reporterInfo: {
-          name: contactName,
-          email: contactEmail || "",
-          phone: contactPhone,
-        },
-        actors: {
-          type: actorType,
-          name: actorName,
-        },
+        address: location || "",
+        reporterInfo: reporter,
+        actors: actorData,
       };
       
       // Format the data to match the incident schema
@@ -1590,6 +1664,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: error.errors });
       }
       res.status(500).json({ error: "Failed to create risk analysis" });
+    }
+  });
+
+  // Scenario simulation
+  app.post("/api/analysis/scenario", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const { region, incidentIncreasePercent, additionalCriticalIncidents, additionalHighIncidents, indicatorValueIncrease } = req.body;
+      if (!region || typeof region !== "string") {
+        return res.status(400).json({ error: "region is required" });
+      }
+      const result = await runScenario({
+        region,
+        incidentIncreasePercent,
+        additionalCriticalIncidents,
+        additionalHighIncidents,
+        indicatorValueIncrease,
+      });
+      res.json(result);
+    } catch (e) {
+      console.error("Error running scenario:", e);
+      res.status(500).json({ error: "Failed to run scenario" });
     }
   });
 

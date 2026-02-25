@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -180,9 +181,10 @@ export default function EmailPage() {
       </div>
 
       <Dialog open={composeOpen} onOpenChange={setComposeOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Compose Email</DialogTitle>
+            <DialogDescription className="sr-only">Compose a new internal email to one or more recipients</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>

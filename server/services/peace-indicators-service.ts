@@ -46,10 +46,12 @@ export class PeaceIndicatorsService {
 
   /**
    * Predict windows of opportunity for peace initiatives
+   * @param timeframeDays - Analysis window in days (default 90)
+   * @param region - Optional region filter (e.g. "North Central"); if set, only opportunities in that region or "National" are returned
    */
-  async predictPeaceOpportunities(timeframeDays: number = 90): Promise<PeaceIndicatorsResult> {
+  async predictPeaceOpportunities(timeframeDays: number = 90, region?: string): Promise<PeaceIndicatorsResult> {
     try {
-      logger.info(`Starting peace opportunity prediction for ${timeframeDays} days`);
+      logger.info(`Starting peace opportunity prediction for ${timeframeDays} days${region ? `, region: ${region}` : ""}`);
 
       const endDate = new Date();
       const startDate = new Date();
@@ -57,8 +59,8 @@ export class PeaceIndicatorsService {
 
       // Get incidents and analyze trends
       const incidents = await storage.getIncidents();
-      const recentIncidents = incidents.filter(incident => 
-        new Date(incident.reportedAt) >= startDate && 
+      const recentIncidents = incidents.filter(incident =>
+        new Date(incident.reportedAt) >= startDate &&
         new Date(incident.reportedAt) <= endDate
       );
 
@@ -84,10 +86,19 @@ export class PeaceIndicatorsService {
       const reconciliationOpps = await this.detectReconciliationSignals(recentIncidents, startDate, endDate);
       opportunities.push(...reconciliationOpps);
 
-      // Generate summary
-      const affectedRegions = Array.from(new Set(opportunities.map(o => o.region)));
-      const highPriorityOpportunities = opportunities.filter(o => ['high', 'critical'].includes(o.priority)).length;
-      const optimalWindows = opportunities.filter(o => {
+      // Optional region filter: keep only opportunities in the requested region or "National"
+      let filteredOpportunities = opportunities;
+      if (region && region.trim()) {
+        const regionNorm = region.trim();
+        filteredOpportunities = opportunities.filter(
+          (o) => o.region === regionNorm || o.region === "National"
+        );
+      }
+
+      const finalOpportunities = filteredOpportunities.sort((a, b) => b.confidence - a.confidence);
+      const finalAffectedRegions = Array.from(new Set(finalOpportunities.map((o) => o.region)));
+      const finalHighPriority = finalOpportunities.filter((o) => ["high", "critical"].includes(o.priority)).length;
+      const finalOptimalWindows = finalOpportunities.filter((o) => {
         const now = new Date();
         const optimal = new Date(o.timeWindow.optimal);
         const diffDays = Math.abs((optimal.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
@@ -95,12 +106,12 @@ export class PeaceIndicatorsService {
       }).length;
 
       const result: PeaceIndicatorsResult = {
-        opportunities: opportunities.sort((a, b) => b.confidence - a.confidence),
+        opportunities: finalOpportunities,
         summary: {
-          totalOpportunities: opportunities.length,
-          highPriorityOpportunities,
-          optimalWindows,
-          affectedRegions,
+          totalOpportunities: finalOpportunities.length,
+          highPriorityOpportunities: finalHighPriority,
+          optimalWindows: finalOptimalWindows,
+          affectedRegions: finalAffectedRegions,
         },
         generatedAt: new Date(),
       };

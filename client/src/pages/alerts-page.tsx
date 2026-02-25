@@ -954,16 +954,16 @@ export default function AlertsPage() {
                 <FormItem>
                   <FormLabel htmlFor="incident-select">Associated Incident</FormLabel>
                   <Select
-                    value={selectedIncidentId?.toString() || ""}
+                    value={selectedIncidentId?.toString() || "none"}
                     onValueChange={(value) => {
-                      setSelectedIncidentId(value ? parseInt(value) : null);
+                      setSelectedIncidentId(value && value !== "none" ? parseInt(value) : null);
                     }}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select an incident" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None (General Alert)</SelectItem>
+                      <SelectItem value="none">None (General Alert)</SelectItem>
                       {incidents?.map((incident) => (
                         <SelectItem key={incident.id} value={incident.id.toString()}>
                           {incident.title}

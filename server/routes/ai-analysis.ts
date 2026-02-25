@@ -266,11 +266,12 @@ export function setupAIAnalysisRoutes(app: Router, storage: IStorage) {
   // Peace Opportunity Indicators - Predict peace windows
   app.post("/api/ai/peace-opportunities", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    
-    const { timeframeDays = 90 } = req.body;
+
+    const { timeframeDays = 90, region } = req.body;
+    const days = Math.min(365, Math.max(7, Number(timeframeDays) || 90));
 
     try {
-      const opportunities = await peaceIndicatorsService.predictPeaceOpportunities(timeframeDays);
+      const opportunities = await peaceIndicatorsService.predictPeaceOpportunities(days, region || undefined);
       res.json(opportunities);
     } catch (error) {
       console.error("Error predicting peace opportunities:", error);

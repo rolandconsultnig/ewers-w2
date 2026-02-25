@@ -28,6 +28,7 @@ import SmsPage from "@/pages/sms-page";
 import SocialMediaPage from "@/pages/social-media-page";
 import AiAnalysisPage from "@/pages/ai-analysis-page";
 import AiPredictionPage from "@/pages/ai-prediction-page";
+import PeaceIndicatorsPage from "@/pages/peace-indicators-page";
 import ReportIncidentPage from "@/pages/report-incident-page";
 import MapPage from "@/pages/map-page";
 import ExecutiveDashboardPage from "@/pages/executive-dashboard-page";
@@ -72,6 +73,7 @@ function Router() {
       <ProtectedRoute path="/ai-analysis" component={AiAnalysisPage} />
       <ProtectedRoute path="/ai-prediction" component={AiPredictionPage} />
       <ProtectedRoute path="/ai-advisor" component={AiAnalysisPage} />
+      <ProtectedRoute path="/peace-indicators" component={PeaceIndicatorsPage} />
       
       {/* Risk Assessment */}
       <ProtectedRoute path="/analysis" component={RiskAssessmentPage} />

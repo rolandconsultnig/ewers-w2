@@ -741,6 +741,30 @@ export const insertEscalationRuleSchema = createInsertSchema(escalationRules).pi
 export type InsertEscalationRule = z.infer<typeof insertEscalationRuleSchema>;
 export type EscalationRule = typeof escalationRules.$inferSelect;
 
+// Enterprise: Threshold Alert Rules - Trigger alerts when indicators or incident counts exceed thresholds
+export const thresholdAlertRules = pgTable("threshold_alert_rules", {
+  id: serial("id").notNull().primaryKey(),
+  name: text("name").notNull(),
+  triggerType: text("trigger_type").notNull(), // 'indicator' | 'incident_count'
+  triggerConfig: jsonb("trigger_config").notNull(), // { indicatorId?, region?, minValue? } or { region?, count?, withinDays? }
+  severity: text("severity").notNull().default("high"), // low, medium, high, critical
+  messageTemplate: text("message_template").notNull(),
+  active: boolean("active").default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertThresholdAlertRuleSchema = createInsertSchema(thresholdAlertRules).pick({
+  name: true,
+  triggerType: true,
+  triggerConfig: true,
+  severity: true,
+  messageTemplate: true,
+  active: true,
+});
+
+export type InsertThresholdAlertRule = z.infer<typeof insertThresholdAlertRuleSchema>;
+export type ThresholdAlertRule = typeof thresholdAlertRules.$inferSelect;
+
 // SMS Logs - Track sent messages
 export const smsLogs = pgTable("sms_logs", {
   id: serial("id").notNull().primaryKey(),

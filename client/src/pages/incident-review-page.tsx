@@ -37,7 +37,7 @@ export default function IncidentReviewPage() {
   const [currentIncidentId, setCurrentIncidentId] = useState<number | null>(null);
   const [filterState, setFilterState] = useState("");
   const [filterLga, setFilterLga] = useState("");
-  const [filterReportingMethod, setFilterReportingMethod] = useState<string>("");
+  const [filterReportingMethod, setFilterReportingMethod] = useState<string>("all");
 
   // Fetch pending incidents
   const { data: pendingIncidents = [], isLoading } = useQuery<Incident[]>({
@@ -46,7 +46,7 @@ export default function IncidentReviewPage() {
       const params = new URLSearchParams();
       if (filterState.trim()) params.set("state", filterState.trim());
       if (filterLga.trim()) params.set("lga", filterLga.trim());
-      if (filterReportingMethod) params.set("reportingMethod", filterReportingMethod);
+      if (filterReportingMethod && filterReportingMethod !== "all") params.set("reportingMethod", filterReportingMethod);
 
       const url = params.toString()
         ? `/api/incidents/pending-review?${params.toString()}`
@@ -280,7 +280,7 @@ export default function IncidentReviewPage() {
                     <SelectValue placeholder="All" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All</SelectItem>
+                    <SelectItem value="all">All</SelectItem>
                     <SelectItem value="text">Text</SelectItem>
                     <SelectItem value="voice">Voice</SelectItem>
                     <SelectItem value="sms">SMS</SelectItem>

@@ -134,3 +134,81 @@ export async function getTrendData(days: number = 30): Promise<TrendDataPoint[]>
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, data]) => ({ date, ...data }));
 }
+
+export interface VulnerabilityResiliencePoint {
+  region: string;
+  state?: string;
+  vulnerabilityScore: number; // 0-100, higher = more vulnerable
+  resilienceScore: number;   // 0-100, higher = more resilient
+  riskLevel: "low" | "medium" | "high" | "critical";
+  incidentCount: number;
+  activeCount: number;
+  resolvedCount: number;
+  avgIndicatorValue: number;
+  resolutionRate: number;
+}
+
+export async function getVulnerabilityResilienceMap(): Promise<VulnerabilityResiliencePoint[]> {
+  const allIncidents = await db.select().from(incidents);
+  const allIndicators = await db.select().from(riskIndicators);
+
+  const regions = new Set<string>();
+  allIncidents.forEach((i) => regions.add(i.region || "Unknown"));
+
+  const defaultRegions = [
+    "North East", "North West", "North Central",
+    "South East", "South South", "South West",
+  ];
+  defaultRegions.forEach((r) => regions.add(r));
+
+  const result: VulnerabilityResiliencePoint[] = [];
+
+  for (const region of regions) {
+    const regionIncidents = allIncidents.filter((i) => (i.region || "") === region);
+    const regionIndicators = allIndicators.filter((r) => (r.region || "") === region);
+    const total = regionIncidents.length;
+    const active = regionIncidents.filter((i) => i.status === "active").length;
+    const resolved = regionIncidents.filter((i) => i.status === "resolved").length;
+    const resolutionRate = total > 0 ? Math.round((resolved / total) * 100) : 100;
+    const avgIndicatorValue =
+      regionIndicators.length > 0
+        ? Math.round(
+            regionIndicators.reduce((s, i) => s + (i.value ?? 0), 0) / regionIndicators.length
+          )
+        : 0;
+
+    const severityWeight = (s: string) =>
+      s === "critical" ? 4 : s === "high" ? 3 : s === "medium" ? 2 : 1;
+    const weighted =
+      regionIncidents.length > 0
+        ? regionIncidents.reduce((s, i) => s + severityWeight(i.severity), 0) / regionIncidents.length
+        : 0;
+    const vulnerabilityScore = Math.min(
+      100,
+      Math.round(weighted * 15 + avgIndicatorValue * 0.4 + active * 5)
+    );
+    const resilienceScore = Math.min(
+      100,
+      Math.max(0, 100 - vulnerabilityScore + (resolutionRate > 50 ? 10 : 0))
+    );
+
+    let riskLevel: "low" | "medium" | "high" | "critical" = "low";
+    if (vulnerabilityScore >= 70) riskLevel = "critical";
+    else if (vulnerabilityScore >= 50) riskLevel = "high";
+    else if (vulnerabilityScore >= 30) riskLevel = "medium";
+
+    result.push({
+      region,
+      incidentCount: total,
+      activeCount: active,
+      resolvedCount: resolved,
+      avgIndicatorValue,
+      resolutionRate,
+      vulnerabilityScore,
+      resilienceScore,
+      riskLevel,
+    });
+  }
+
+  return result.sort((a, b) => b.vulnerabilityScore - a.vulnerabilityScore);
+}
