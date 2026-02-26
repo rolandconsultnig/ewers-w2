@@ -48,6 +48,7 @@ import ElectionPartiesPage from "@/pages/election-monitoring/election-parties-pa
 import ElectionPoliticiansPage from "@/pages/election-monitoring/election-politicians-page";
 import ElectionActorsPage from "@/pages/election-monitoring/election-actors-page";
 import ElectionViolencePage from "@/pages/election-monitoring/election-violence-page";
+import ElectionNewsFeedPage from "@/pages/election-monitoring/election-news-feed-page";
 import { ProtectedRoute, RoleProtectedRoute } from "./lib/protected-route";
 
 function Router() {
@@ -118,6 +119,7 @@ function Router() {
 
       {/* Election Monitoring */}
       <ProtectedRoute path="/election-monitoring" component={ElectionMonitoringDashboard} />
+      <ProtectedRoute path="/election-monitoring/news" component={ElectionNewsFeedPage} />
       <ProtectedRoute path="/election-monitoring/elections" component={ElectionElectionsPage} />
       <ProtectedRoute path="/election-monitoring/parties" component={ElectionPartiesPage} />
       <ProtectedRoute path="/election-monitoring/politicians" component={ElectionPoliticiansPage} />

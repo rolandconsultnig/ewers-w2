@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { ChangeEvent, useState } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -45,7 +45,7 @@ type VoiceIncident = {
 export default function VoiceIncidentPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioBlob, setAudioBlob] = useState<Blob | File | null>(null);
   const [playingId, setPlayingId] = useState<number | null>(null);
 
   const { data: voiceIncidents = [], refetch: refetchVoice } = useQuery<VoiceIncident[]>({
@@ -72,11 +72,15 @@ export default function VoiceIncidentPage() {
   });
 
   const submitVoiceIncidentMutation = useMutation({
-    mutationFn: async (data: VoiceIncidentFormValues & { audioFile: Blob }) => {
+    mutationFn: async (data: VoiceIncidentFormValues & { audioFile: Blob | File }) => {
       const formData = new FormData();
       
-      // Add audio file
-      formData.append('audio', data.audioFile, 'voice-incident.webm');
+      // Add audio file (preserve original filename when available for better format detection)
+      if (data.audioFile instanceof File) {
+        formData.append('audio', data.audioFile, data.audioFile.name);
+      } else {
+        formData.append('audio', data.audioFile, 'voice-incident.webm');
+      }
       
       // Add form fields
       formData.append('location', data.location);
@@ -134,6 +138,20 @@ export default function VoiceIncidentPage() {
     });
   };
 
+  const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setAudioBlob(file);
+    setAudioDuration(0);
+    setShowRecorder(false);
+
+    toast({
+      title: "Audio file attached",
+      description: "Your audio file is ready. Fill in the details and submit.",
+    });
+  };
+
   const onSubmit = (data: VoiceIncidentFormValues) => {
     if (!audioBlob) {
       toast({
@@ -152,21 +170,21 @@ export default function VoiceIncidentPage() {
 
   return (
     <MainLayout title="Voice Incident Reporting">
-      <div className="container mx-auto p-6 max-w-4xl">
+      <div className="container mx-auto max-w-4xl px-4 py-4 sm:px-6 sm:py-6">
         <Tabs defaultValue="report">
-          <TabsList className="mb-4">
+          <TabsList className="mb-4 flex flex-wrap gap-2">
             <TabsTrigger value="report">Report New</TabsTrigger>
             <TabsTrigger value="list">Voice Incidents ({voiceIncidents.length})</TabsTrigger>
           </TabsList>
           <TabsContent value="report">
         <Card>
           <CardHeader>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <div className="p-3 bg-blue-100 rounded-full">
                 <Mic className="h-6 w-6 text-blue-600" />
               </div>
               <div>
-                <CardTitle className="text-2xl">Report Incident by Voice</CardTitle>
+                <CardTitle className="text-xl sm:text-2xl">Report Incident by Voice</CardTitle>
                 <CardDescription>
                   Record your incident report and we'll automatically transcribe it
                 </CardDescription>
@@ -175,8 +193,8 @@ export default function VoiceIncidentPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Voice Recording Section */}
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 bg-gray-50">
-              <div className="text-center mb-4">
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 sm:p-6 bg-gray-50 space-y-4">
+              <div className="text-center">
                 <h3 className="text-lg font-semibold mb-2">Step 1: Record Your Report</h3>
                 <p className="text-sm text-muted-foreground">
                   Click the button below to start recording. Speak clearly and describe the incident in detail.
@@ -208,6 +226,20 @@ export default function VoiceIncidentPage() {
                   }}
                 />
               )}
+
+              {/* Mobile-friendly fallback: upload an existing audio file */}
+              <div className="border-t pt-4 mt-4">
+                <h4 className="text-sm font-semibold mb-2">Alternative: Upload audio from your phone</h4>
+                <p className="text-xs text-muted-foreground mb-3">
+                  If recording does not start on your device, you can use your phone&apos;s voice recorder and upload the file here.
+                </p>
+                <Input
+                  type="file"
+                  accept="audio/*"
+                  capture="user"
+                  onChange={handleFileUpload}
+                />
+              </div>
 
               {audioBlob && !showRecorder && (
                 <div className="text-center space-y-3">

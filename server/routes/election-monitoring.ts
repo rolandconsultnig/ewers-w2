@@ -4,6 +4,7 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import type { User as SelectUser } from "@shared/schema";
+import { runPoliticalNewsIngest } from "../services/political-news-ingest-service";
 
 export function setupElectionMonitoringRoutes(app: Router) {
   const requireAuth = (req: any, res: any, next: any) => {
@@ -156,6 +157,29 @@ export function setupElectionMonitoringRoutes(app: Router) {
       res.json(p);
     } catch (e) {
       res.status(500).json({ error: "Failed to update politician" });
+    }
+  });
+
+  app.get("/api/election-events", requireAuth, async (req, res) => {
+    const limit = req.query.limit != null ? parseInt(String(req.query.limit), 10) : undefined;
+    const type = req.query.type as string | undefined;
+    try {
+      const list = await storage.getRecentElectionEvents({ limit: limit ?? 80, type });
+      res.json(list);
+    } catch (e) {
+      console.error("Error fetching election events:", e);
+      res.status(500).json({ error: "Failed to fetch election events" });
+    }
+  });
+
+  app.post("/api/election-events/harvest-political-news", requireAuth, async (req, res) => {
+    try {
+      const limit = req.body?.limit != null ? Math.min(Number(req.body.limit), 50) : 25;
+      const result = await runPoliticalNewsIngest(limit);
+      return res.json(result);
+    } catch (e) {
+      console.error("Error harvesting political news:", e);
+      return res.status(500).json({ error: "Failed to harvest political news" });
     }
   });
 

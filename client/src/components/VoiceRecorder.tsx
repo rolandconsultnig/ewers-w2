@@ -23,6 +23,13 @@ export function VoiceRecorder({ onRecordingComplete, onRecordingStart, onRecordi
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const { toast } = useToast();
 
+  const isRecordingSupported =
+    typeof window !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    !!navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getUserMedia === "function" &&
+    typeof (window as any).MediaRecorder !== "undefined";
+
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -32,11 +39,18 @@ export function VoiceRecorder({ onRecordingComplete, onRecordingStart, onRecordi
 
   const startRecording = async () => {
     try {
+      if (!isRecordingSupported) {
+        toast({
+          title: "Recording not supported",
+          description: "This browser does not support in-app recording. Please use the upload option instead.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4'
-      });
+      const mediaRecorder = new MediaRecorder(stream);
       
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
@@ -157,9 +171,18 @@ export function VoiceRecorder({ onRecordingComplete, onRecordingStart, onRecordi
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  if (!isRecordingSupported) {
+    return (
+      <div className="space-y-2 text-center text-sm text-muted-foreground">
+        <p>Your browser does not fully support in-app voice recording.</p>
+        <p>Please use the \"Upload audio file\" option below to send a voice report from your phone.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-center gap-4">
+      <div className="flex flex-wrap items-center justify-center gap-3">
         {!isRecording && !audioBlob && (
           <Button
             type="button"

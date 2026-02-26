@@ -43,7 +43,8 @@ import {
   UserCircle,
   Building2,
   Swords,
-  Calendar
+  Calendar,
+  Newspaper
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -106,6 +107,7 @@ export default function Sidebar({ isMobileMenuOpen, closeMobileMenu }: SidebarPr
       title: "Election Monitoring",
       items: [
         { path: "/election-monitoring", label: "Dashboard", icon: <Vote className="mr-3 h-5 w-5" /> },
+        { path: "/election-monitoring/news", label: "Election News", icon: <Newspaper className="mr-3 h-5 w-5" /> },
         { path: "/election-monitoring/elections", label: "Elections", icon: <Calendar className="mr-3 h-5 w-5" /> },
         { path: "/election-monitoring/parties", label: "Political Parties", icon: <Building2 className="mr-3 h-5 w-5" /> },
         { path: "/election-monitoring/politicians", label: "Politicians", icon: <UserCircle className="mr-3 h-5 w-5" /> },

@@ -2,7 +2,8 @@ import MainLayout from "@/components/layout/MainLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Vote, Calendar, Building2, UserCircle, Users, Swords, ArrowRight } from "lucide-react";
+import { Vote, Calendar, Building2, UserCircle, Users, Swords, ArrowRight, Newspaper } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { format } from "date-fns";
 
@@ -10,7 +11,7 @@ type Election = { id: number; name: string; type: string; region: string; state:
 type Party = { id: number; name: string; abbreviation: string | null };
 type Politician = { id: number; fullName: string };
 type Actor = { id: number; name: string; type: string };
-type Event = { id: number; title: string; type: string; severity: string };
+type Event = { id: number; title: string; type: string; severity: string; description: string | null; eventDate: string };
 
 export default function ElectionMonitoringDashboard() {
   const { data: elections = [] } = useQuery<Election[]>({
@@ -33,6 +34,17 @@ export default function ElectionMonitoringDashboard() {
       const res = await apiRequest("GET", "/api/politicians");
       return res.json();
     },
+  });
+
+  const mainElection = elections.find((e) => e.name.includes("2027") && (e.type === "presidential" || e.name.toLowerCase().includes("presidential"))) ?? elections[0];
+  const { data: electionEvents = [] } = useQuery<Event[]>({
+    queryKey: mainElection ? [`/api/elections/${mainElection.id}/events`] : ["election-events-none"],
+    queryFn: async () => {
+      if (!mainElection) return [];
+      const res = await apiRequest("GET", `/api/elections/${mainElection.id}/events`);
+      return res.json();
+    },
+    enabled: !!mainElection,
   });
 
   const preElection = elections.filter((e) => e.status === "pre_election" || e.status === "ongoing");
@@ -99,6 +111,47 @@ export default function ElectionMonitoringDashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Election news 2026 */}
+        {electionEvents.length > 0 && (
+          <Card className="border-l-4 border-l-primary">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Newspaper className="h-5 w-5" />
+                Election news 2026
+              </CardTitle>
+              <CardDescription>
+                Timetable, primaries, campaign periods, and key updates for the 2027 polls. Run <code className="text-xs bg-muted px-1 rounded">npm run db:seed:election-2026</code> to load more.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-3 max-h-64 overflow-y-auto">
+                {electionEvents.slice(0, 12).map((ev) => (
+                  <li key={ev.id} className="text-sm border-b border-border/50 pb-2 last:border-0 last:pb-0">
+                    <div className="flex items-start gap-2 flex-wrap">
+                      <Badge variant="outline" className="shrink-0 capitalize text-xs">{ev.severity}</Badge>
+                      <span className="text-muted-foreground shrink-0">{format(new Date(ev.eventDate), "MMM d, yyyy")}</span>
+                    </div>
+                    <p className="font-medium mt-0.5">{ev.title}</p>
+                    {ev.description && <p className="text-muted-foreground text-xs mt-0.5 line-clamp-2">{ev.description}</p>}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-wrap gap-3 mt-3">
+              <Link href="/election-monitoring/news">
+                <span className="inline-flex items-center gap-1 text-sm text-primary cursor-pointer hover:underline">
+                  Full news feed <ArrowRight className="h-4 w-4" />
+                </span>
+              </Link>
+              <Link href="/election-monitoring/violence">
+                <span className="inline-flex items-center gap-1 text-sm text-primary cursor-pointer hover:underline">
+                  All events & violence <ArrowRight className="h-4 w-4" />
+                </span>
+              </Link>
+            </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid gap-4 md:grid-cols-2">
           <Card>

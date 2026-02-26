@@ -209,6 +209,7 @@ export interface IStorage {
   getElectionActors(electionId: number): Promise<ElectionActor[]>;
   createElectionActor(a: InsertElectionActor): Promise<ElectionActor>;
   getElectionEvents(electionId: number, filters?: { type?: string }): Promise<ElectionEvent[]>;
+  getRecentElectionEvents(options?: { limit?: number; type?: string }): Promise<(ElectionEvent & { electionName: string })[]>;
   createElectionEvent(e: InsertElectionEvent): Promise<ElectionEvent>;
 
   // Session store
@@ -483,6 +484,32 @@ export class DatabaseStorage implements IStorage {
   async getElectionEvents(electionId: number, filters?: { type?: string }): Promise<ElectionEvent[]> {
     if (filters?.type) return db.select().from(electionEvents).where(and(eq(electionEvents.electionId, electionId), eq(electionEvents.type, filters.type))).orderBy(desc(electionEvents.eventDate));
     return db.select().from(electionEvents).where(eq(electionEvents.electionId, electionId)).orderBy(desc(electionEvents.eventDate));
+  }
+  async getRecentElectionEvents(options?: { limit?: number; type?: string }): Promise<(ElectionEvent & { electionName: string })[]> {
+    const limit = Math.min(options?.limit ?? 80, 100);
+    const sel = {
+      id: electionEvents.id,
+      electionId: electionEvents.electionId,
+      title: electionEvents.title,
+      description: electionEvents.description,
+      type: electionEvents.type,
+      severity: electionEvents.severity,
+      location: electionEvents.location,
+      state: electionEvents.state,
+      lga: electionEvents.lga,
+      eventDate: electionEvents.eventDate,
+      partyId: electionEvents.partyId,
+      politicianId: electionEvents.politicianId,
+      actorId: electionEvents.actorId,
+      incidentId: electionEvents.incidentId,
+      reportedBy: electionEvents.reportedBy,
+      createdAt: electionEvents.createdAt,
+      electionName: elections.name,
+    };
+    const rows = options?.type
+      ? await db.select(sel).from(electionEvents).innerJoin(elections, eq(electionEvents.electionId, elections.id)).where(eq(electionEvents.type, options.type)).orderBy(desc(electionEvents.eventDate)).limit(limit)
+      : await db.select(sel).from(electionEvents).innerJoin(elections, eq(electionEvents.electionId, elections.id)).orderBy(desc(electionEvents.eventDate)).limit(limit);
+    return rows as (ElectionEvent & { electionName: string })[];
   }
   async createElectionEvent(e: InsertElectionEvent): Promise<ElectionEvent> {
     const [row] = await db.insert(electionEvents).values(e as any).returning();

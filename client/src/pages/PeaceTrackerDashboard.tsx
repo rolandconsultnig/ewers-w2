@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import MainLayout from "@/components/layout/MainLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -346,6 +347,41 @@ export default function PeaceTrackerDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Recent Nigeria situation – highlighted incidents */}
+      {(pinnedIncidents > 0 || criticalIncidents > 0) && (
+        <Card className="mb-6 border-l-4 border-l-amber-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center text-base">
+              <Globe className="h-5 w-5 mr-2 text-amber-600" />
+              Recent Nigeria situation
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Pinned and critical incidents from current monitoring. Seed with <code className="text-xs bg-muted px-1 rounded">npm run db:seed:nigeria-issues</code> to load Feb 2025 issues.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {[...incidents]
+                .filter((i) => i.isPinned || i.severity === "critical")
+                .sort((a, b) => new Date(b.reportedAt).getTime() - new Date(a.reportedAt).getTime())
+                .slice(0, 8)
+                .map((i) => (
+                  <div key={i.id} className="flex items-start gap-2 text-sm py-1.5 border-b border-border/50 last:border-0">
+                    <Badge variant={i.severity === "critical" ? "destructive" : "secondary"} className="shrink-0 capitalize">
+                      {i.severity}
+                    </Badge>
+                    <span className="font-medium line-clamp-1">{i.title}</span>
+                    <span className="text-muted-foreground shrink-0">{i.state || i.location}</span>
+                  </div>
+                ))}
+            </div>
+            <Button variant="outline" size="sm" className="mt-3" asChild>
+              <Link href="/map">View on crisis map</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* AI Insights Section */}
       {aiInsights && (

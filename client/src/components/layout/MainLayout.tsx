@@ -20,7 +20,7 @@ export default function MainLayout({ children, title }: MainLayoutProps) {
   
   return (
     <VoiceA11yProvider>
-      <div className="flex h-screen overflow-hidden bg-gradient-to-br from-green-50 to-green-100">
+      <div className="flex min-h-screen bg-gradient-to-br from-green-50 to-green-100">
         {!!user && <VoiceAssistant pageTitle={title} />}
 
         <Sidebar 
@@ -28,13 +28,13 @@ export default function MainLayout({ children, title }: MainLayoutProps) {
           closeMobileMenu={closeMobileMenu}
         />
         
-        <div className="flex flex-col flex-1 overflow-y-auto">
+        <div className="flex flex-col flex-1 min-w-0">
           <Topbar 
             openMobileMenu={openMobileMenu} 
             title={title}
           />
           
-          <main className="flex-1 p-6">
+          <main className="flex-1 px-4 py-4 sm:px-6 sm:py-6">
             {children}
           </main>
           

@@ -53,6 +53,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return data.user ?? data;
     },
     onSuccess: (user: SelectUser) => {
+      // Prevent the initial /api/user auth check request (fired on app load)
+      // from overwriting the freshly logged-in user when it resolves later.
+      queryClient.cancelQueries({ queryKey: ["/api/user"] });
       queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Login successful",
@@ -74,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return await res.json();
     },
     onSuccess: (user: SelectUser) => {
+      queryClient.cancelQueries({ queryKey: ["/api/user"] });
       queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Registration successful",

@@ -76,3 +76,64 @@ export async function fetchNigeriaCrisisNews(limit: number = 20): Promise<NewsIt
   }
 }
 
+/**
+ * Fetches Nigeria political/election news (parties, primaries, INEC, 2027 elections).
+ * Uses same NEWS_API_URL and NEWS_API_KEY; query targets political keywords.
+ */
+export async function fetchNigeriaPoliticalNews(limit: number = 25): Promise<NewsItem[]> {
+  const apiUrl = process.env.NEWS_API_URL;
+  const apiKey = process.env.NEWS_API_KEY;
+
+  if (!apiUrl || !apiKey) {
+    logger.warn(
+      "News API not configured. Set NEWS_API_URL and NEWS_API_KEY to enable political news ingestion."
+    );
+    return [];
+  }
+
+  try {
+    const response = await axios.get(apiUrl, {
+      params: {
+        q: "Nigeria election OR INEC OR political party OR primaries OR Tinubu OR PDP OR APC OR Labour Party OR 2027 election OR gubernatorial OR NASS OR National Assembly",
+        lang: "en",
+        max: limit,
+      },
+      headers: {
+        "X-Api-Key": apiKey,
+      },
+      timeout: 15000,
+    });
+
+    const payload = response.data as any;
+    const articles: any[] =
+      Array.isArray(payload?.articles) ? payload.articles :
+      Array.isArray(payload?.data) ? payload.data :
+      [];
+
+    return articles.slice(0, limit).map((a) => ({
+      title: String(a.title ?? ""),
+      content: String(
+        a.description ??
+        a.content ??
+        a.summary ??
+        ""
+      ),
+      timestamp: String(
+        a.publishedAt ??
+        a.published_at ??
+        a.created_at ??
+        new Date().toISOString()
+      ),
+      url: typeof a.url === "string" ? a.url : undefined,
+      source: typeof a.source?.name === "string"
+        ? a.source.name
+        : typeof a.source === "string"
+        ? a.source
+        : "news",
+    }));
+  } catch (error) {
+    logger.error("Failed to fetch Nigeria political news", { error });
+    return [];
+  }
+}
+
