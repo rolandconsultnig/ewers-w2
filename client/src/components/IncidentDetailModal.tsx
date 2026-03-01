@@ -33,12 +33,13 @@ export function IncidentDetailModal({ incident, open, onOpenChange }: IncidentDe
       if (!incident) return null;
       const res = await fetch(`/api/ai/recommendations/${incident.id}`, { credentials: "include" });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error || "Failed to load recommendations");
+        // Return graceful fallback instead of throwing
+        return { recommendations: null, unavailable: true };
       }
       return res.json();
     },
     enabled: !!incident && open,
+    retry: false,
   });
   const recommendations: string[] = Array.isArray(recommendationsData?.recommendations)
     ? recommendationsData.recommendations
@@ -144,10 +145,10 @@ export function IncidentDetailModal({ incident, open, onOpenChange }: IncidentDe
               </ul>
             ) : loadingRecs ? (
               <p className="text-sm text-muted-foreground">Loading AI recommendations...</p>
-            ) : recsError ? (
-              <p className="text-sm text-destructive">Failed to load recommendations. Try refreshing.</p>
+            ) : (recommendationsData as any)?.unavailable || recsError ? (
+              <p className="text-sm text-muted-foreground">AI recommendations are not available at this time. Please ensure the AI service is configured.</p>
             ) : recommendationsData && !recommendationsData.recommendations ? (
-              <p className="text-sm text-muted-foreground">No recommendations available. Check AI configuration.</p>
+              <p className="text-sm text-muted-foreground">No recommendations generated for this incident.</p>
             ) : null}
           </div>
         </div>
