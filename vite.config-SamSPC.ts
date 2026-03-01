@@ -12,12 +12,12 @@ export default defineConfig({
   root: clientRoot,
   base: "/",
   server: {
-    port: 5173,
+    port: 4342,
     strictPort: true,
     proxy: {
-      "/api": { target: "http://localhost:4342", changeOrigin: true },
-      "/socket.io": { target: "http://localhost:4342", ws: true },
-      "/uploads": { target: "http://localhost:4342", changeOrigin: true },
+      "/api": { target: "http://localhost:4343", changeOrigin: true },
+      "/socket.io": { target: "http://localhost:4343", ws: true },
+      "/uploads": { target: "http://localhost:4343", changeOrigin: true },
     },
     fs: {
       strict: false,

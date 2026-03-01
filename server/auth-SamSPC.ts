@@ -22,6 +22,11 @@ const scryptAsync = promisify(scrypt);
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "ewers-jwt-secret";
 const JWT_EXPIRES = process.env.JWT_EXPIRES || "7d";
 
+function toSafeUser(user: SelectUser) {
+  const { password: _password, ...safe } = user as any;
+  return safe as Omit<SelectUser, "password">;
+}
+
 export function generateJWT(user: SelectUser): string {
   return jwt.sign(
     { id: user.id, username: user.username, role: user.role, securityLevel: user.securityLevel },
@@ -33,6 +38,19 @@ export function generateJWT(user: SelectUser): string {
 export function verifyJWT(token: string): { id: number; username: string; role: string; securityLevel: number } | null {
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { id: number; username: string; role: string; securityLevel: number };
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+export function signCallGuestToken(payload: { callId: number; participantId: number; displayName: string }): string {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
+}
+
+export function verifyCallGuestToken(token: string): { callId: number; participantId: number; displayName: string } | null {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { callId: number; participantId: number; displayName: string };
     return decoded;
   } catch {
     return null;
@@ -159,7 +177,7 @@ export function setupAuth(app: Express) {
 
     req.login(user, (err) => {
       if (err) return next(err);
-      res.status(201).json(user);
+      res.status(201).json(toSafeUser(user));
     });
   });
   
@@ -236,7 +254,7 @@ export function setupAuth(app: Express) {
       req.login(user, (loginErr) => {
         if (loginErr) return next(loginErr);
         const token = generateJWT(user);
-        res.status(200).json({ user, token });
+        res.status(200).json({ user: toSafeUser(user), token });
       });
     })(req, res, next);
   };
@@ -250,36 +268,51 @@ export function setupAuth(app: Express) {
     res.status(200).json({ token, expiresIn: JWT_EXPIRES });
   });
 
-  app.post("/api/logout", (req, res, next) => {
-    req.logout((err) => {
-      if (err) return next(err);
-      res.sendStatus(200);
-    });
-  });
+  const clearSessionCookie = (res: express.Response) => {
+    const opts: { path: string; httpOnly?: boolean; sameSite?: boolean | 'lax'; secure?: boolean } = { path: '/' };
+    if (sessionSettings.cookie) {
+      opts.httpOnly = true;
+      opts.sameSite = sessionSettings.cookie.sameSite as 'lax';
+      if (sessionSettings.cookie.secure) opts.secure = true;
+    }
+    res.clearCookie('connect.sid', opts);
+  };
 
-  app.post("/api/auth/logout", (req, res, next) => {
+  const handleLogout = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     req.logout((err) => {
       if (err) return next(err);
-      res.sendStatus(200);
+      clearSessionCookie(res);
+      const s = req.session as express.Session & { destroy?: (cb: (err?: Error) => void) => void };
+      if (s && typeof s.destroy === "function") {
+        s.destroy((destroyErr) => {
+          if (destroyErr) return next(destroyErr);
+          res.sendStatus(200);
+        });
+      } else {
+        res.sendStatus(200);
+      }
     });
-  });
+  };
+
+  app.post("/api/logout", handleLogout);
+  app.post("/api/auth/logout", handleLogout);
 
   app.get("/api/user", (req, res) => {
     // Return 200 with null when not logged in (avoids 401 console noise on auth check)
     if (!req.isAuthenticated()) return res.status(200).json(null);
-    res.json(req.user);
+    res.json(toSafeUser(req.user as SelectUser));
   });
 
   // API auth aliases
   app.get("/api/auth/me", (req, res) => {
     if (!req.isAuthenticated()) return res.status(200).json(null);
-    res.json(req.user);
+    res.json(toSafeUser(req.user as SelectUser));
   });
 
   // Profile management - update own profile
   app.get("/api/user/profile", (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    res.json(req.user);
+    res.json(toSafeUser(req.user as SelectUser));
   });
 
   app.put("/api/user/profile", async (req, res) => {
@@ -298,7 +331,7 @@ export function setupAuth(app: Express) {
       updateData.password = await hashPassword(password);
     }
     const updated = await storage.updateUser(currentUser.id, updateData);
-    res.json(updated);
+    res.json(toSafeUser(updated));
   });
 
   app.get("/api/user/all", async (req, res) => {

@@ -78,6 +78,9 @@ function SetBoundsRectangles() {
   const map = useMap();
   
   useEffect(() => {
+    // Force Leaflet to recalculate container size (fixes blank map after conditional render)
+    map.invalidateSize();
+    
     // Set max bounds to Nigeria
     map.setMaxBounds(nigeriaBounds);
     map.options.minZoom = 6;
@@ -88,6 +91,10 @@ function SetBoundsRectangles() {
     
     // Disable keyboard navigation which can move out of bounds
     map.keyboard.disable();
+    
+    // Re-invalidate after a short delay to catch late layout shifts
+    const timer = setTimeout(() => map.invalidateSize(), 300);
+    return () => clearTimeout(timer);
   }, [map]);
   
   return null;
@@ -357,8 +364,13 @@ export default function NigeriaMap({
 
   // Use provided incidents or fetched incidents or mock data
   // Only use mock incidents after map is ready to ensure they don't disappear
+  // Note: empty arrays are truthy, so we also check .length to allow fallback
   const incidents: Array<Incident | MockIncident> = mapReady
-    ? ((propIncidents as unknown as Array<Incident | MockIncident>) || fetchedIncidents || mockIncidents)
+    ? (
+        (propIncidents && propIncidents.length > 0 ? (propIncidents as unknown as Array<Incident | MockIncident>) : null)
+        || (fetchedIncidents && fetchedIncidents.length > 0 ? fetchedIncidents : null)
+        || mockIncidents
+      )
     : [];
 
   const incidentPinnedMap = useMemo(() => {

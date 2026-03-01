@@ -1,4 +1,4 @@
-import { users, dataSources, collectedData, processedData, incidents, alerts, responseActivities, responseTeams, riskIndicators, riskAnalyses, responsePlans, feedbacks, reports, settings, accessLogs, apiKeys, webhooks, cases, caseNotes, conversations, conversationParticipants, messages, messageAttachments, callSessions, callParticipants } from "@shared/schema";
+import { users, dataSources, collectedData, processedData, incidents, alerts, responseActivities, responseTeams, riskIndicators, riskAnalyses, responsePlans, feedbacks, reports, settings, accessLogs, apiKeys, webhooks, cases, caseNotes, conversations, conversationParticipants, messages, messageAttachments, callSessions, callParticipants, elections, politicalParties, politicians, electionActors, electionEvents } from "@shared/schema";
 import type { 
   User, InsertUser, 
   DataSource, InsertDataSource, 
@@ -24,11 +24,16 @@ import type {
   Message, InsertMessage,
   MessageAttachment, InsertMessageAttachment,
   CallSession, InsertCallSession,
-  CallParticipant, InsertCallParticipant
+  CallParticipant, InsertCallParticipant,
+  Election, InsertElection,
+  PoliticalParty, InsertPoliticalParty,
+  Politician, InsertPolitician,
+  ElectionActor, InsertElectionActor,
+  ElectionEvent, InsertElectionEvent
 } from "@shared/schema";
 import session from "express-session";
 import { db, pool } from "./db";
-import { eq, and, desc, gte, lte } from "drizzle-orm";
+import { eq, and, desc, gte, lte, gt, isNull } from "drizzle-orm";
 import connectPg from "connect-pg-simple";
 
 const PostgresSessionStore = connectPg(session);
@@ -174,13 +179,38 @@ export interface IStorage {
 
   getMessages(conversationId: number, limit?: number): Promise<Message[]>;
   createMessage(message: InsertMessage): Promise<Message>;
+  getMessage(id: number): Promise<Message | undefined>;
+  updateMessage(id: number, data: { body: string; editedAt?: Date }): Promise<Message>;
+  deleteMessage(id: number): Promise<Message>;
+  getLastMessageForConversation(conversationId: number): Promise<Message | undefined>;
+  getUnreadCountForParticipant(conversationId: number, userId: number): Promise<number>;
   getMessageAttachments(messageId: number): Promise<MessageAttachment[]>;
   createMessageAttachment(attachment: InsertMessageAttachment): Promise<MessageAttachment>;
 
   createCallSession(call: InsertCallSession): Promise<CallSession>;
   endCallSession(callSessionId: number): Promise<CallSession>;
+  getCallSession(id: number): Promise<CallSession | undefined>;
+  getActiveCallSessions(): Promise<CallSession[]>;
   addCallParticipant(participant: InsertCallParticipant): Promise<CallParticipant>;
   leaveCallParticipant(callSessionId: number, userId: number): Promise<CallParticipant | undefined>;
+  leaveCallParticipantByGuestId(callSessionId: number, participantId: number): Promise<CallParticipant | undefined>;
+
+  getElections(): Promise<Election[]>;
+  getElection(id: number): Promise<Election | undefined>;
+  createElection(election: InsertElection): Promise<Election>;
+  updateElection(id: number, data: Partial<Election>): Promise<Election>;
+  getPoliticalParties(): Promise<PoliticalParty[]>;
+  createPoliticalParty(party: InsertPoliticalParty): Promise<PoliticalParty>;
+  updatePoliticalParty(id: number, data: Partial<PoliticalParty>): Promise<PoliticalParty>;
+  getPoliticians(filters?: { electionId?: number; partyId?: number }): Promise<Politician[]>;
+  getPolitician(id: number): Promise<Politician | undefined>;
+  createPolitician(p: InsertPolitician): Promise<Politician>;
+  updatePolitician(id: number, data: Partial<Politician>): Promise<Politician>;
+  getElectionActors(electionId: number): Promise<ElectionActor[]>;
+  createElectionActor(a: InsertElectionActor): Promise<ElectionActor>;
+  getElectionEvents(electionId: number, filters?: { type?: string }): Promise<ElectionEvent[]>;
+  getRecentElectionEvents(options?: { limit?: number; type?: string }): Promise<(ElectionEvent & { electionName: string })[]>;
+  createElectionEvent(e: InsertElectionEvent): Promise<ElectionEvent>;
 
   // Session store
   sessionStore: any;
@@ -256,9 +286,66 @@ export class DatabaseStorage implements IStorage {
     return db
       .select()
       .from(messages)
-      .where(eq(messages.conversationId, conversationId))
+      .where(and(eq(messages.conversationId, conversationId), isNull(messages.deletedAt)))
       .orderBy(desc(messages.createdAt))
       .limit(limit);
+  }
+
+  async getMessage(id: number): Promise<Message | undefined> {
+    const [row] = await db.select().from(messages).where(eq(messages.id, id));
+    return row;
+  }
+
+  async updateMessage(id: number, data: { body: string; editedAt?: Date }): Promise<Message> {
+    const [row] = await db
+      .update(messages)
+      .set({ body: data.body, editedAt: (data.editedAt ?? new Date()) as any })
+      .where(eq(messages.id, id))
+      .returning();
+    if (!row) throw new Error("Message not found");
+    return row;
+  }
+
+  async deleteMessage(id: number): Promise<Message> {
+    const [row] = await db
+      .update(messages)
+      .set({ deletedAt: new Date() as any })
+      .where(eq(messages.id, id))
+      .returning();
+    if (!row) throw new Error("Message not found");
+    return row;
+  }
+
+  async getLastMessageForConversation(conversationId: number): Promise<Message | undefined> {
+    const [row] = await db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.conversationId, conversationId), isNull(messages.deletedAt)))
+      .orderBy(desc(messages.createdAt))
+      .limit(1);
+    return row;
+  }
+
+  async getUnreadCountForParticipant(conversationId: number, userId: number): Promise<number> {
+    const [participant] = await db
+      .select()
+      .from(conversationParticipants)
+      .where(and(eq(conversationParticipants.conversationId, conversationId), eq(conversationParticipants.userId, userId)));
+    if (!participant) return 0;
+    const lastRead = participant.lastReadAt;
+    const conditions = [
+      eq(messages.conversationId, conversationId),
+      isNull(messages.deletedAt),
+    ];
+    if (lastRead) {
+      conditions.push(gt(messages.createdAt, lastRead));
+    }
+    const allInConvo = await db
+      .select({ id: messages.id, senderId: messages.senderId, createdAt: messages.createdAt })
+      .from(messages)
+      .where(and(...conditions));
+    const unread = allInConvo.filter((m) => m.senderId !== userId).length;
+    return unread;
   }
 
   async createMessage(message: InsertMessage): Promise<Message> {
@@ -298,6 +385,19 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
+  async getCallSession(id: number): Promise<CallSession | undefined> {
+    const [row] = await db.select().from(callSessions).where(eq(callSessions.id, id));
+    return row;
+  }
+
+  async getActiveCallSessions(): Promise<CallSession[]> {
+    return db
+      .select()
+      .from(callSessions)
+      .where(eq(callSessions.status, "active"))
+      .orderBy(desc(callSessions.startedAt));
+  }
+
   async addCallParticipant(participant: InsertCallParticipant): Promise<CallParticipant> {
     const [row] = await db.insert(callParticipants).values(participant as any).returning();
     return row;
@@ -309,6 +409,110 @@ export class DatabaseStorage implements IStorage {
       .set({ leftAt: new Date() as any })
       .where(and(eq(callParticipants.callSessionId, callSessionId), eq(callParticipants.userId, userId)))
       .returning();
+    return row;
+  }
+
+  async leaveCallParticipantByGuestId(callSessionId: number, participantId: number): Promise<CallParticipant | undefined> {
+    const [row] = await db
+      .update(callParticipants)
+      .set({ leftAt: new Date() as any })
+      .where(and(eq(callParticipants.callSessionId, callSessionId), eq(callParticipants.id, participantId)))
+      .returning();
+    return row;
+  }
+
+  async getElections(): Promise<Election[]> {
+    return db.select().from(elections).orderBy(desc(elections.electionDate));
+  }
+  async getElection(id: number): Promise<Election | undefined> {
+    const [row] = await db.select().from(elections).where(eq(elections.id, id));
+    return row;
+  }
+  async createElection(election: InsertElection): Promise<Election> {
+    const [row] = await db.insert(elections).values({ ...election, updatedAt: new Date() } as any).returning();
+    return row;
+  }
+  async updateElection(id: number, data: Partial<Election>): Promise<Election> {
+    const [row] = await db.update(elections).set({ ...data, updatedAt: new Date() } as any).where(eq(elections.id, id)).returning();
+    if (!row) throw new Error("Election not found");
+    return row;
+  }
+  async getPoliticalParties(): Promise<PoliticalParty[]> {
+    return db.select().from(politicalParties).orderBy(politicalParties.name);
+  }
+  async createPoliticalParty(party: InsertPoliticalParty): Promise<PoliticalParty> {
+    const [row] = await db.insert(politicalParties).values(party as any).returning();
+    return row;
+  }
+  async updatePoliticalParty(id: number, data: Partial<PoliticalParty>): Promise<PoliticalParty> {
+    const [row] = await db.update(politicalParties).set(data as any).where(eq(politicalParties.id, id)).returning();
+    if (!row) throw new Error("Political party not found");
+    return row;
+  }
+  async getPoliticians(filters?: { electionId?: number; partyId?: number }): Promise<Politician[]> {
+    if (filters?.electionId != null && filters?.partyId != null) {
+      return db.select().from(politicians).where(and(eq(politicians.electionId, filters.electionId), eq(politicians.partyId, filters.partyId))).orderBy(desc(politicians.createdAt));
+    }
+    if (filters?.electionId != null) {
+      return db.select().from(politicians).where(eq(politicians.electionId, filters.electionId)).orderBy(desc(politicians.createdAt));
+    }
+    if (filters?.partyId != null) {
+      return db.select().from(politicians).where(eq(politicians.partyId, filters.partyId)).orderBy(desc(politicians.createdAt));
+    }
+    return db.select().from(politicians).orderBy(desc(politicians.createdAt));
+  }
+  async getPolitician(id: number): Promise<Politician | undefined> {
+    const [row] = await db.select().from(politicians).where(eq(politicians.id, id));
+    return row;
+  }
+  async createPolitician(p: InsertPolitician): Promise<Politician> {
+    const [row] = await db.insert(politicians).values(p as any).returning();
+    return row;
+  }
+  async updatePolitician(id: number, data: Partial<Politician>): Promise<Politician> {
+    const [row] = await db.update(politicians).set(data as any).where(eq(politicians.id, id)).returning();
+    if (!row) throw new Error("Politician not found");
+    return row;
+  }
+  async getElectionActors(electionId: number): Promise<ElectionActor[]> {
+    return db.select().from(electionActors).where(eq(electionActors.electionId, electionId)).orderBy(electionActors.name);
+  }
+  async createElectionActor(a: InsertElectionActor): Promise<ElectionActor> {
+    const [row] = await db.insert(electionActors).values(a as any).returning();
+    return row;
+  }
+  async getElectionEvents(electionId: number, filters?: { type?: string }): Promise<ElectionEvent[]> {
+    if (filters?.type) return db.select().from(electionEvents).where(and(eq(electionEvents.electionId, electionId), eq(electionEvents.type, filters.type))).orderBy(desc(electionEvents.eventDate));
+    return db.select().from(electionEvents).where(eq(electionEvents.electionId, electionId)).orderBy(desc(electionEvents.eventDate));
+  }
+  async getRecentElectionEvents(options?: { limit?: number; type?: string }): Promise<(ElectionEvent & { electionName: string })[]> {
+    const limit = Math.min(options?.limit ?? 80, 100);
+    const sel = {
+      id: electionEvents.id,
+      electionId: electionEvents.electionId,
+      title: electionEvents.title,
+      description: electionEvents.description,
+      type: electionEvents.type,
+      severity: electionEvents.severity,
+      location: electionEvents.location,
+      state: electionEvents.state,
+      lga: electionEvents.lga,
+      eventDate: electionEvents.eventDate,
+      partyId: electionEvents.partyId,
+      politicianId: electionEvents.politicianId,
+      actorId: electionEvents.actorId,
+      incidentId: electionEvents.incidentId,
+      reportedBy: electionEvents.reportedBy,
+      createdAt: electionEvents.createdAt,
+      electionName: elections.name,
+    };
+    const rows = options?.type
+      ? await db.select(sel).from(electionEvents).innerJoin(elections, eq(electionEvents.electionId, elections.id)).where(eq(electionEvents.type, options.type)).orderBy(desc(electionEvents.eventDate)).limit(limit)
+      : await db.select(sel).from(electionEvents).innerJoin(elections, eq(electionEvents.electionId, elections.id)).orderBy(desc(electionEvents.eventDate)).limit(limit);
+    return rows as (ElectionEvent & { electionName: string })[];
+  }
+  async createElectionEvent(e: InsertElectionEvent): Promise<ElectionEvent> {
+    const [row] = await db.insert(electionEvents).values(e as any).returning();
     return row;
   }
 

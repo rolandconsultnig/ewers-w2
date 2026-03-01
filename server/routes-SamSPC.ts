@@ -2,7 +2,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { createServer, type Server } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { storage } from "./storage";
-import { setupAuth } from "./auth";
+import { setupAuth, verifyCallGuestToken } from "./auth";
 import { z } from "zod";
 import {
   insertDataSourceSchema,
@@ -37,6 +37,7 @@ import { setupAdvancedSearchRoutes } from "./routes/advanced-search";
 import { setupResponseTeamMembersRoutes } from "./routes/response-team-members";
 import { setupVoiceIncidentRoutes } from "./routes/voice-incident";
 import { setupCollaborationRoutes } from "./routes/collaboration";
+import { setupElectionMonitoringRoutes } from "./routes/election-monitoring";
 import { db } from "./db";
 import * as notificationService from "./services/notification-service";
 import { getSocialPosts, fetchFromWebAndStore } from "./services/social-posts-service";
@@ -48,7 +49,10 @@ import {
   getExecutiveKpis,
   getRegionalHeatMap,
   getTrendData,
+  getVulnerabilityResilienceMap,
 } from "./services/enterprise-analytics";
+import { runScenario } from "./services/scenario-simulation-service";
+import * as thresholdAlertService from "./services/threshold-alert-service";
 import { getSlaStatus, checkAndEscalateBreachedAlerts } from "./services/escalation-service";
 import { getSystemHealth } from "./services/health-service";
 import * as auditService from "./services/audit-service";
@@ -69,6 +73,7 @@ import {
   alertTemplates,
   riskZones,
   escalationRules,
+  thresholdAlertRules,
   accessLogs,
 } from "@shared/schema";
 import { desc, eq, count } from "drizzle-orm";
@@ -110,6 +115,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   io.on("connection", async (socket) => {
     const userId = socket.handshake.auth?.userId;
     const username = socket.handshake.auth?.username;
+    const guestToken = socket.handshake.auth?.guestToken;
+    let guestCallId: number | undefined;
+    let guestParticipantId: number | undefined;
+    let guestDisplayName: string | undefined;
+    if (guestToken && typeof guestToken === "string") {
+      const guest = verifyCallGuestToken(guestToken);
+      if (guest) {
+        guestCallId = guest.callId;
+        guestParticipantId = guest.participantId;
+        guestDisplayName = guest.displayName;
+      }
+    }
     if (userId && username) {
       onlineUsers.set(socket.id, { userId, username });
       io.emit("online-users", Array.from(onlineUsers.values()));
@@ -128,23 +145,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     socket.on("leave-conversation", (conversationId: number) => {
       socket.leave(`conversation:${conversationId}`);
     });
+    socket.on("chat:typing-start", (conversationId: number) => {
+      socket.to(`conversation:${conversationId}`).emit("chat:typing", {
+        conversationId,
+        userId,
+        username: username || "Unknown",
+      });
+    });
+    socket.on("chat:typing-stop", (conversationId: number) => {
+      socket.to(`conversation:${conversationId}`).emit("chat:typing-stop", {
+        conversationId,
+        userId,
+      });
+    });
     socket.on("call:join", (callId: number) => {
+      if (guestParticipantId != null && guestCallId !== callId) return;
       socket.join(`call:${callId}`);
     });
     socket.on("call:leave", (callId: number) => {
       socket.leave(`call:${callId}`);
     });
-    socket.on("call:offer", (data: { callId: number; offer: object }) => {
-      socket.to(`call:${data.callId}`).emit("call:offer", data);
+    socket.on("call:offer", (data: { callId: number; offer: object; toUserId?: number; toGuestParticipantId?: number }) => {
+      const payload = userId != null ? { ...data, fromUserId: userId } : { ...data, fromGuestParticipantId: guestParticipantId, fromGuestDisplayName: guestDisplayName };
+      socket.to(`call:${data.callId}`).emit("call:offer", payload);
     });
-    socket.on("call:answer", (data: { callId: number; answer: object }) => {
-      socket.to(`call:${data.callId}`).emit("call:answer", data);
+    socket.on("call:answer", (data: { callId: number; answer: object; toUserId?: number; toGuestParticipantId?: number }) => {
+      const payload = userId != null ? { ...data, fromUserId: userId } : { ...data, fromGuestParticipantId: guestParticipantId, fromGuestDisplayName: guestDisplayName };
+      socket.to(`call:${data.callId}`).emit("call:answer", payload);
     });
-    socket.on("call:ice", (data: { callId: number; candidate: object }) => {
-      socket.to(`call:${data.callId}`).emit("call:ice", data);
+    socket.on("call:ice", (data: { callId: number; candidate: object; toUserId?: number; toGuestParticipantId?: number }) => {
+      const payload = userId != null ? { ...data, fromUserId: userId } : { ...data, fromGuestParticipantId: guestParticipantId };
+      socket.to(`call:${data.callId}`).emit("call:ice", payload);
     });
     socket.on("call:request-offer", (callId: number) => {
-      socket.to(`call:${callId}`).emit("call:request-offer", { callId, fromUserId: userId });
+      if (userId != null) socket.to(`call:${callId}`).emit("call:request-offer", { callId, fromUserId: userId });
+      else socket.to(`call:${callId}`).emit("call:request-offer", { callId, fromGuestParticipantId: guestParticipantId, fromGuestDisplayName: guestDisplayName });
+    });
+    socket.on("call:participant-joined", (data: { callId: number }) => {
+      if (userId != null) socket.to(`call:${data.callId}`).emit("call:participant-joined", { callId: data.callId, userId });
+      else socket.to(`call:${data.callId}`).emit("call:participant-joined", { callId: data.callId, guestParticipantId, guestDisplayName });
     });
 
     socket.on("disconnect", () => {
@@ -186,6 +225,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register collaboration routes (chat, email, calls)
   setupCollaborationRoutes(app, io);
+
+  // Election Monitoring (pre-election, post-election, parties, politicians, actors, violence)
+  setupElectionMonitoringRoutes(app);
 
   // Data Sources API
   app.get("/api/data-sources", async (req, res) => {
@@ -865,6 +907,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/enterprise/vulnerability-map", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const data = await getVulnerabilityResilienceMap();
+      res.json(data);
+    } catch (error) {
+      console.error("Error fetching vulnerability map:", error);
+      res.status(500).json({ error: "Failed to fetch vulnerability map" });
+    }
+  });
+
   app.get("/api/enterprise/trends", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
@@ -1038,6 +1091,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const id = parseInt(req.params.id);
     await db.delete(escalationRules).where(eq(escalationRules.id, id));
     res.status(204).send();
+  });
+
+  // Enterprise: Threshold alert rules CRUD + evaluate
+  app.get("/api/enterprise/threshold-rules", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const items = await thresholdAlertService.getThresholdRules();
+      res.json(items);
+    } catch (e) {
+      console.error("Error fetching threshold rules:", e);
+      res.status(500).json({ error: "Failed to fetch threshold rules" });
+    }
+  });
+  app.post("/api/enterprise/threshold-rules", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const created = await thresholdAlertService.createThresholdRule(req.body);
+      res.status(201).json(created);
+    } catch (e) {
+      console.error("Error creating threshold rule:", e);
+      res.status(500).json({ error: "Failed to create threshold rule" });
+    }
+  });
+  app.put("/api/enterprise/threshold-rules/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const id = parseInt(req.params.id);
+    const updated = await thresholdAlertService.updateThresholdRule(id, req.body);
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    res.json(updated);
+  });
+  app.delete("/api/enterprise/threshold-rules/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const id = parseInt(req.params.id);
+    const ok = await thresholdAlertService.deleteThresholdRule(id);
+    if (!ok) return res.status(404).json({ error: "Not found" });
+    res.status(204).send();
+  });
+  app.post("/api/enterprise/threshold-rules/evaluate", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const result = await thresholdAlertService.evaluateThresholdRules();
+      res.json(result);
+    } catch (e) {
+      console.error("Error evaluating threshold rules:", e);
+      res.status(500).json({ error: "Failed to evaluate threshold rules" });
+    }
   });
 
   // Data collection file import (CSV/JSON parse and store in collected_data)
@@ -1245,11 +1344,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/public/incidents", async (req, res) => {
     try {
-      // Extract the necessary incident data from the request
-      const { 
-        title, description, location, region, actorType, actorName,
-        contactName, contactEmail, contactPhone, category
+      const {
+        title,
+        description,
+        location,
+        region,
+        actorType,
+        actorName,
+        contactName,
+        contactEmail,
+        contactPhone,
+        category,
+        reporterInfo,
+        actors,
       } = req.body;
+
+      // Support both flat body and nested reporterInfo/actors from client
+      const reporter = reporterInfo ?? {
+        name: contactName ?? "",
+        email: contactEmail ?? "",
+        phone: contactPhone ?? "",
+      };
+      const actorData = actors ?? {
+        type: actorType ?? undefined,
+        name: actorName ?? "",
+      };
 
       const users = await storage.getAllUsers();
       const reporterUser = users.find((u) => u.role === "admin") ?? users[0];
@@ -1260,16 +1379,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const coordinates = {
         lat: 0,
         lng: 0,
-        address: location,
-        reporterInfo: {
-          name: contactName,
-          email: contactEmail || "",
-          phone: contactPhone,
-        },
-        actors: {
-          type: actorType,
-          name: actorName,
-        },
+        address: location || "",
+        reporterInfo: reporter,
+        actors: actorData,
       };
       
       // Format the data to match the incident schema
@@ -1577,6 +1689,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: error.errors });
       }
       res.status(500).json({ error: "Failed to create risk analysis" });
+    }
+  });
+
+  // Scenario simulation
+  app.post("/api/analysis/scenario", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const { region, incidentIncreasePercent, additionalCriticalIncidents, additionalHighIncidents, indicatorValueIncrease } = req.body;
+      if (!region || typeof region !== "string") {
+        return res.status(400).json({ error: "region is required" });
+      }
+      const result = await runScenario({
+        region,
+        incidentIncreasePercent,
+        additionalCriticalIncidents,
+        additionalHighIncidents,
+        indicatorValueIncrease,
+      });
+      res.json(result);
+    } catch (e) {
+      console.error("Error running scenario:", e);
+      res.status(500).json({ error: "Failed to run scenario" });
     }
   });
 
