@@ -16,11 +16,14 @@ import { Incident } from "@shared/schema";
 import { crisisTypes } from "@/lib/crisis-constants";
 import { Search, Filter, AlertTriangle, MapPin, Calendar } from "lucide-react";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import { IncidentDetailModal } from "@/components/IncidentDetailModal";
 
 export default function CrisisPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
+  const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const { data: incidents = [], isLoading } = useQuery<Incident[]>({
     queryKey: ["/api/crises"],
@@ -39,13 +42,13 @@ export default function CrisisPage() {
   const getCategoryInfo = (cat: string) => crisisTypes[cat] || { color: "#8884d8", label: cat };
 
   return (
-    <MainLayout title="Crisis Management">
+    <MainLayout title="Conflict Management">
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search crises..."
+              placeholder="Search conflicts..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-9"
@@ -81,7 +84,7 @@ export default function CrisisPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5" />
-              Crisis Reports ({filtered.length})
+              Conflict Reports ({filtered.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -91,15 +94,15 @@ export default function CrisisPage() {
               </div>
             ) : filtered.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
-                No crisis reports match your filters.
+                No conflict reports match your filters.
               </div>
             ) : (
               <div className="space-y-4">
-                {filtered.map((crisis) => {
-                  const info = getCategoryInfo(crisis.category);
+                {filtered.map((conflict) => {
+                  const info = getCategoryInfo(conflict.category);
                   return (
                     <div
-                      key={crisis.id}
+                      key={conflict.id}
                       className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
                     >
                       <div className="flex justify-between items-start">
@@ -109,35 +112,42 @@ export default function CrisisPage() {
                               className="w-3 h-3 rounded-full"
                               style={{ backgroundColor: info.color }}
                             />
-                            <h3 className="font-semibold">{crisis.title}</h3>
-                            <Badge variant="outline">{crisis.severity}</Badge>
+                            <h3 className="font-semibold">{conflict.title}</h3>
+                            <Badge variant="outline">{conflict.severity}</Badge>
                             <Badge
                               className={
-                                crisis.status === "active"
+                                conflict.status === "active"
                                   ? "bg-yellow-100 text-yellow-800"
-                                  : crisis.status === "resolved"
+                                  : conflict.status === "resolved"
                                   ? "bg-green-100 text-green-800"
                                   : "bg-orange-100 text-orange-800"
                               }
                             >
-                              {crisis.status}
+                              {conflict.status}
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
-                            {crisis.description}
+                            {conflict.description}
                           </p>
                           <div className="flex items-center gap-4 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <MapPin className="h-3 w-3" />
-                              {crisis.location}
+                              {conflict.location}
                             </span>
                             <span className="flex items-center gap-1">
                               <Calendar className="h-3 w-3" />
-                              {new Date(crisis.reportedAt).toLocaleDateString()}
+                              {new Date(conflict.reportedAt).toLocaleDateString()}
                             </span>
                           </div>
                         </div>
-                        <Button variant="outline" size="sm">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedIncident(conflict);
+                            setDetailOpen(true);
+                          }}
+                        >
                           View Details
                         </Button>
                       </div>
@@ -149,6 +159,12 @@ export default function CrisisPage() {
           </CardContent>
         </Card>
       </div>
+
+      <IncidentDetailModal
+        incident={selectedIncident}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+      />
     </MainLayout>
   );
 }

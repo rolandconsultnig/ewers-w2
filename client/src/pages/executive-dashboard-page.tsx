@@ -354,7 +354,7 @@ export default function ExecutiveDashboardPage() {
               <Link href="/crises">
                 <Button variant="outline">
                   <Activity className="mr-2 h-4 w-4" />
-                  Crisis Management
+                  Conflict Management
                 </Button>
               </Link>
               <Link href="/map">
