@@ -136,13 +136,24 @@ const specificIncidents = [
 ];
 
 async function seedIncidents() {
+  console.log('Clearing existing incidents...');
+  await db.delete(incidents);
   console.log('Starting to seed incidents...');
   
   const incidentsToCreate = [];
   let count = 0;
 
+  // Date range: Jan 1 2025 – Feb 28 2026
+  const startDate = new Date('2025-01-01T00:00:00Z');
+  const endDate   = new Date('2026-02-28T23:59:59Z');
+  const dateRange = endDate.getTime() - startDate.getTime();
+
+  function randomDate() {
+    return new Date(startDate.getTime() + Math.random() * dateRange);
+  }
+
   // Generate incidents from templates
-  for (let i = 0; i < 115; i++) {
+  for (let i = 0; i < 120; i++) {
     const template = incidentTemplates[i % incidentTemplates.length];
     const location = nigerianLocations[Math.floor(Math.random() * nigerianLocations.length)];
     
@@ -150,10 +161,7 @@ async function seedIncidents() {
     const title = template.title.replace('{location}', locationName);
     const description = template.description.replace(/{location}/g, locationName);
     
-    // Vary the dates over the past 6 months
-    const daysAgo = Math.floor(Math.random() * 180);
-    const reportedAt = new Date();
-    reportedAt.setDate(reportedAt.getDate() - daysAgo);
+    const reportedAt = randomDate();
     
     // Vary status
     const statuses = ['active', 'active', 'active', 'resolved', 'pending'];
@@ -195,9 +203,7 @@ async function seedIncidents() {
   for (const incident of specificIncidents) {
     const location = nigerianLocations[Math.floor(Math.random() * nigerianLocations.length)];
     
-    const daysAgo = Math.floor(Math.random() * 90);
-    const reportedAt = new Date();
-    reportedAt.setDate(reportedAt.getDate() - daysAgo);
+    const reportedAt = randomDate();
     
     incidentsToCreate.push({
       title: incident.title,
