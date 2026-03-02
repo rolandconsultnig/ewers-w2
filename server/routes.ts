@@ -71,7 +71,7 @@ import {
   escalationRules,
   accessLogs,
 } from "@shared/schema";
-import { desc, eq, count } from "drizzle-orm";
+import { desc, eq, count, sql } from "drizzle-orm";
 import path from "path";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -86,6 +86,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       environment: process.env.NODE_ENV || "development",
       version: "1.0.0"
     });
+  });
+
+  // Debug endpoint to diagnose incident count discrepancy
+  app.get("/api/debug/incident-count", async (_req, res) => {
+    try {
+      const drizzleRows = await storage.getIncidents();
+      const rawResult = await db.execute(sql`SELECT COUNT(*)::int as cnt FROM incidents`);
+      const rawCount = (rawResult as any).rows?.[0]?.cnt ?? (rawResult as any)[0]?.cnt ?? 'unknown';
+      const dbUrl = process.env.DATABASE_URL || 'NOT SET';
+      const maskedUrl = dbUrl.replace(/\/\/[^@]+@/, '//***@');
+      res.json({
+        drizzleCount: drizzleRows.length,
+        rawSqlCount: rawCount,
+        databaseHost: maskedUrl,
+        sampleIds: drizzleRows.slice(0, 5).map(r => r.id),
+        nodeEnv: process.env.NODE_ENV,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   // API connectivity test
