@@ -17,7 +17,7 @@
     "db:seed:global": "tsx scripts/create-global-user.ts",
     "db:seed:nigeria-issues": "tsx scripts/seed-nigeria-recent-issues.ts",
     "db:seed:election-2026": "tsx scripts/seed-election-2026-news.ts",
-    "db:seed:incidents": "tsx server/seed-incidents.ts"
+    "db:seed:incidents": "cross-env DATABASE_SSL_NO_VERIFY=true tsx server/seed-incidents.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
