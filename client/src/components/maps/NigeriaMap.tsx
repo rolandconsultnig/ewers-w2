@@ -26,6 +26,16 @@ const defaultIcon = L.icon({
 L.Marker.prototype.options.icon = defaultIcon;
 
 // Custom icons for different incident types with increased size
+const criticalSeverityIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-violet.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [38, 62],  // Largest size for critical
+  iconAnchor: [19, 62],
+  popupAnchor: [1, -55],
+  shadowSize: [50, 50],
+  className: 'critical-severity-marker'
+});
+
 const highSeverityIcon = new L.Icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
@@ -423,6 +433,8 @@ export default function NigeriaMap({
     }
     
     switch (severity.toLowerCase()) {
+      case 'critical':
+        return criticalSeverityIcon;
       case 'high':
         return highSeverityIcon;
       case 'medium':

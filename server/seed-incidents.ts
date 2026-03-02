@@ -189,7 +189,7 @@ async function seedIncidents() {
       status,
       category: template.category,
       reportedBy: 1, // Assuming admin user with ID 1
-      coordinates: JSON.stringify(location.coords),
+      coordinates: location.coords,
       impactedPopulation,
       verificationStatus,
       reportingMethod,
@@ -216,7 +216,7 @@ async function seedIncidents() {
       status: 'active',
       category: incident.category,
       reportedBy: 1,
-      coordinates: JSON.stringify(location.coords),
+      coordinates: location.coords,
       impactedPopulation: Math.floor(Math.random() * 100000) + 500,
       verificationStatus: 'verified',
       reportingMethod: 'text',
