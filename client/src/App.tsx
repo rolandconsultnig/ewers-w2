@@ -110,9 +110,9 @@ function Router() {
       <ProtectedRoute path="/social-media/tiktok" component={SocialMediaPage} />
       
       {/* Administration */}
-      <RoleProtectedRoute path="/audit-logs" component={AuditLogsPage} allowedRoles={["admin"]} minSecurityLevel={5} />
-      <RoleProtectedRoute path="/enterprise-settings" component={EnterpriseSettingsPage} allowedRoles={["admin"]} minSecurityLevel={5} />
-      <RoleProtectedRoute path="/user-management" component={UserManagementPage} allowedRoles={["admin"]} minSecurityLevel={5} />
+      <RoleProtectedRoute path="/audit-logs" component={AuditLogsPage} allowedRoles={["admin"]} />
+      <RoleProtectedRoute path="/enterprise-settings" component={EnterpriseSettingsPage} allowedRoles={["admin"]} />
+      <RoleProtectedRoute path="/user-management" component={UserManagementPage} allowedRoles={["admin"]} />
       <ProtectedRoute path="/integrations" component={IntegrationsPage} />
       <ProtectedRoute path="/reporting" component={ReportingPage} />
       <ProtectedRoute path="/settings" component={SettingsPage} />

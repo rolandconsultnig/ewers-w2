@@ -1183,7 +1183,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const currentUser = req.user as SelectUser;
     if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
     const users = await storage.getAllUsers();
-    res.json(users);
+    const safe = users.map(({ password, ...rest }) => rest);
+    res.json(safe);
   });
   app.get("/api/users/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);

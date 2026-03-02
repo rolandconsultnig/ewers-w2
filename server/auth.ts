@@ -312,7 +312,8 @@ export function setupAuth(app: Express) {
     
     try {
       const users = await storage.getAllUsers();
-      res.json(users);
+      const safe = users.map(({ password, ...rest }) => rest);
+      res.json(safe);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch users" });
     }
