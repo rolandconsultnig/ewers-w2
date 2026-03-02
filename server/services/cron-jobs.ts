@@ -25,14 +25,14 @@ export function initCronJobs(): void {
     }
   });
 
-  // Crisis status check - every 30 min, mark incidents older than 7 days as resolved
+  // Crisis status check - every 30 min, mark incidents older than 365 days as resolved
   cron.schedule("*/30 * * * *", async () => {
     try {
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const cutoffDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
       const activeList = await db.select().from(incidents).where(eq(incidents.status, "active"));
       let count = 0;
       for (const inc of activeList) {
-        if (new Date(inc.reportedAt) < sevenDaysAgo) {
+        if (new Date(inc.reportedAt) < cutoffDate) {
           await db.update(incidents).set({ status: "resolved" }).where(eq(incidents.id, inc.id));
           count++;
         }
