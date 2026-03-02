@@ -16,9 +16,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-async function downloadReport(format: "csv" | "json", days: number) {
-  const res = await fetch(`/api/enterprise/export/report?format=${format}&days=${days}`, {
+async function downloadReport(format: "csv" | "json", days: number, type: string = "overview") {
+  const jwt = localStorage.getItem("jwt");
+  const headers: Record<string, string> = {};
+  if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
+
+  const res = await fetch(`/api/enterprise/export/report?format=${format}&days=${days}&type=${type}`, {
     credentials: "include",
+    headers,
   });
   if (!res.ok) throw new Error("Export failed");
   const blob = format === "json"
@@ -27,7 +32,7 @@ async function downloadReport(format: "csv" | "json", days: number) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `ewer-report-${new Date().toISOString().slice(0, 10)}.${format}`;
+  a.download = `ewer-${type}-${new Date().toISOString().slice(0, 10)}.${format}`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -38,10 +43,10 @@ export default function ReportingPage() {
   const [exporting, setExporting] = useState(false);
   const { toast } = useToast();
 
-  const handleExport = async (format: "csv" | "json") => {
+  const handleExport = async (format: "csv" | "json", type: string = "overview") => {
     setExporting(true);
     try {
-      await downloadReport(format, parseInt(exportDays));
+      await downloadReport(format, parseInt(exportDays), type);
       toast({ title: `Report exported as ${format.toUpperCase()}` });
     } catch {
       toast({ title: "Export failed", variant: "destructive" });
@@ -63,47 +68,57 @@ export default function ReportingPage() {
     </>
   );
   
-  // Sample report data
+  // Report definitions mapped to backend export types
   const reports = [
     { 
       id: 1, 
       name: "Quarterly Conflict Overview", 
       type: "Standard", 
-      lastGenerated: "2023-03-15T14:30:00",
-      format: "PDF",
-      scheduled: true
+      lastGenerated: new Date().toISOString(),
+      format: "Excel",
+      scheduled: true,
+      exportType: "overview",
+      exportFormat: "csv" as const,
     },
     { 
       id: 2, 
       name: "Monthly Risk Assessment", 
       type: "Standard", 
-      lastGenerated: "2023-03-01T10:15:00",
+      lastGenerated: new Date().toISOString(),
       format: "Excel",
-      scheduled: true
+      scheduled: true,
+      exportType: "risk",
+      exportFormat: "csv" as const,
     },
     { 
       id: 3, 
-      name: "Regional Security Analysis", 
+      name: "Incident Data Export", 
       type: "Custom", 
-      lastGenerated: "2023-02-20T16:45:00",
-      format: "PDF",
-      scheduled: false
+      lastGenerated: new Date().toISOString(),
+      format: "Excel",
+      scheduled: false,
+      exportType: "incidents",
+      exportFormat: "csv" as const,
     },
     { 
       id: 4, 
       name: "Incident Response Effectiveness", 
       type: "KPI", 
-      lastGenerated: "2023-02-15T09:30:00",
-      format: "Dashboard",
-      scheduled: false
+      lastGenerated: new Date().toISOString(),
+      format: "JSON",
+      scheduled: false,
+      exportType: "response",
+      exportFormat: "json" as const,
     },
     { 
       id: 5, 
       name: "Early Warning Indicator Trends", 
       type: "Impact", 
-      lastGenerated: "2023-02-10T13:20:00",
+      lastGenerated: new Date().toISOString(),
       format: "Excel",
-      scheduled: true
+      scheduled: true,
+      exportType: "overview",
+      exportFormat: "csv" as const,
     },
   ];
   
@@ -212,8 +227,22 @@ export default function ReportingPage() {
                         <Switch checked={report.scheduled} />
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm">View</Button>
-                        <Button variant="ghost" size="sm">Generate</Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={exporting}
+                          onClick={() => handleExport("json", report.exportType)}
+                        >
+                          View
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={exporting}
+                          onClick={() => handleExport(report.exportFormat, report.exportType)}
+                        >
+                          {exporting ? "..." : "Generate"}
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -238,11 +267,10 @@ export default function ReportingPage() {
                         <p className="text-xs text-muted-foreground">Comprehensive monthly security analysis</p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => handleExport("csv")} disabled={exporting}>
+                    <Button variant="outline" size="sm" onClick={() => handleExport("csv", "overview")} disabled={exporting}>
                       {exporting ? "..." : "Generate"}
                     </Button>
                   </div>
-                  
                   <div className="flex items-center justify-between">
                     <div className="flex items-center">
                       <Table2 className="h-5 w-5 text-green-600 mr-3" />
@@ -251,11 +279,10 @@ export default function ReportingPage() {
                         <p className="text-xs text-muted-foreground">Detailed incident data export (CSV/Excel)</p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => handleExport("csv")} disabled={exporting}>
+                    <Button variant="outline" size="sm" onClick={() => handleExport("csv", "incidents")} disabled={exporting}>
                       {exporting ? "..." : "Export CSV"}
                     </Button>
                   </div>
-                  
                   <div className="flex items-center justify-between">
                     <div className="flex items-center">
                       <FileIcon className="h-5 w-5 text-red-600 mr-3" />
@@ -264,14 +291,13 @@ export default function ReportingPage() {
                         <p className="text-xs text-muted-foreground">Risk analysis by Nigerian region</p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => handleExport("csv")} disabled={exporting}>
+                    <Button variant="outline" size="sm" onClick={() => handleExport("csv", "risk")} disabled={exporting}>
                       {exporting ? "..." : "Export CSV"}
                     </Button>
                   </div>
                 </div>
               </CardContent>
             </Card>
-            
             <Card>
               <CardHeader>
                 <CardTitle>Custom Report Builder</CardTitle>
@@ -285,25 +311,25 @@ export default function ReportingPage() {
                   <div>
                     <h4 className="text-sm font-medium mb-2">Select Report Type</h4>
                     <div className="grid grid-cols-2 gap-2">
-                      <Button variant="outline" className="justify-start h-auto py-2">
+                      <Button variant="outline" className="justify-start h-auto py-2" disabled={exporting} onClick={() => handleExport("csv", "incidents")}>
                         <div className="flex flex-col items-start">
                           <span className="text-sm">Incident Report</span>
                           <span className="text-xs text-muted-foreground">Conflict events</span>
                         </div>
                       </Button>
-                      <Button variant="outline" className="justify-start h-auto py-2">
+                      <Button variant="outline" className="justify-start h-auto py-2" disabled={exporting} onClick={() => handleExport("csv", "risk")}>
                         <div className="flex flex-col items-start">
                           <span className="text-sm">Risk Analysis</span>
                           <span className="text-xs text-muted-foreground">Risk assessment</span>
                         </div>
                       </Button>
-                      <Button variant="outline" className="justify-start h-auto py-2">
+                      <Button variant="outline" className="justify-start h-auto py-2" disabled={exporting} onClick={() => handleExport("csv", "response")}>
                         <div className="flex flex-col items-start">
                           <span className="text-sm">Response Summary</span>
                           <span className="text-xs text-muted-foreground">Response activities</span>
                         </div>
                       </Button>
-                      <Button variant="outline" className="justify-start h-auto py-2">
+                      <Button variant="outline" className="justify-start h-auto py-2" disabled={exporting} onClick={() => handleExport("csv", "overview")}>
                         <div className="flex flex-col items-start">
                           <span className="text-sm">Custom Analytics</span>
                           <span className="text-xs text-muted-foreground">Advanced analysis</span>
@@ -313,8 +339,8 @@ export default function ReportingPage() {
                   </div>
                 </div>
                 <div className="mt-4">
-                  <Button className="w-full">
-                    Launch Report Builder
+                  <Button className="w-full" disabled={exporting} onClick={() => handleExport("csv", "overview")}>
+                    {exporting ? "Generating..." : "Generate Full Report"}
                   </Button>
                 </div>
               </CardContent>

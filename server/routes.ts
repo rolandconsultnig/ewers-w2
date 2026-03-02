@@ -904,11 +904,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Enterprise: Export report (CSV/JSON)
+  // Supports ?type=overview|incidents|risk|response  &format=csv|json  &days=30
   app.get("/api/enterprise/export/report", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const format = (req.query.format as string) || "json";
     const days = Math.min(parseInt((req.query.days as string) || "30"), 365);
+    const type = (req.query.type as string) || "overview";
+    const dateStr = new Date().toISOString().slice(0, 10);
+
     try {
+      if (type === "incidents") {
+        // Full incident-level export
+        const allIncidents = await storage.getIncidents();
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - days);
+        const filtered = allIncidents.filter((i) => new Date(i.reportedAt as any) >= cutoff);
+
+        if (format === "csv") {
+          const esc = (v: any) => {
+            const s = String(v ?? "");
+            return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+          };
+          const rows = [
+            "ID,Title,Description,Severity,Status,Category,Region,State,Location,Latitude,Longitude,Reported At",
+            ...filtered.map((i) =>
+              [i.id, esc(i.title), esc(i.description), i.severity, i.status, i.category ?? "", i.region ?? "", i.state ?? "", esc(i.location ?? ""), i.latitude ?? "", i.longitude ?? "", i.reportedAt].join(",")
+            ),
+          ];
+          res.setHeader("Content-Type", "text/csv");
+          res.setHeader("Content-Disposition", `attachment; filename="ewer-incidents-${dateStr}.csv"`);
+          return res.send(rows.join("\n"));
+        }
+        return res.json({ generatedAt: new Date().toISOString(), period: `Last ${days} days`, type: "incidents", count: filtered.length, incidents: filtered });
+      }
+
+      if (type === "risk") {
+        // Regional risk assessment
+        const heatMap = await getRegionalHeatMap();
+        if (format === "csv") {
+          const rows = [
+            "Region,State,Incident Count,Active Count,Risk Level",
+            ...heatMap.map((r) => `${r.region},${r.state ?? ""},${r.incidentCount},${r.activeCount},${r.riskLevel}`),
+          ];
+          res.setHeader("Content-Type", "text/csv");
+          res.setHeader("Content-Disposition", `attachment; filename="ewer-risk-assessment-${dateStr}.csv"`);
+          return res.send(rows.join("\n"));
+        }
+        return res.json({ generatedAt: new Date().toISOString(), type: "risk", regions: heatMap });
+      }
+
+      if (type === "response") {
+        // Response effectiveness — alerts + resolution metrics
+        const allAlerts = await storage.getAlerts();
+        const kpis = await getExecutiveKpis();
+        if (format === "csv") {
+          const esc = (v: any) => {
+            const s = String(v ?? "");
+            return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+          };
+          const rows = [
+            "Metric,Value",
+            `Resolution Rate (%),${kpis.resolutionRate}`,
+            `Avg Response Time (hrs),${kpis.avgResponseTimeHours}`,
+            `Total Incidents,${kpis.totalIncidents}`,
+            `Active Incidents,${kpis.activeIncidents}`,
+            `Critical Alerts,${kpis.criticalAlerts}`,
+            "",
+            "Alert ID,Title,Severity,Status,Region,Generated At",
+            ...allAlerts.map((a) => [a.id, esc(a.title), a.severity, a.status, a.region ?? "", a.generatedAt].join(",")),
+          ];
+          res.setHeader("Content-Type", "text/csv");
+          res.setHeader("Content-Disposition", `attachment; filename="ewer-response-report-${dateStr}.csv"`);
+          return res.send(rows.join("\n"));
+        }
+        return res.json({ generatedAt: new Date().toISOString(), type: "response", kpis, alerts: allAlerts });
+      }
+
+      // Default: overview — KPIs + heat map + trends
       const [kpis, heatMap, trends] = await Promise.all([
         getExecutiveKpis(),
         getRegionalHeatMap(),
@@ -917,6 +989,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const report = {
         generatedAt: new Date().toISOString(),
         period: `Last ${days} days`,
+        type: "overview",
         kpis,
         regionalHeatMap: heatMap,
         trends,
@@ -938,7 +1011,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...trends.map((t) => `${t.date},${t.incidents},${t.alerts}`),
         ];
         res.setHeader("Content-Type", "text/csv");
-        res.setHeader("Content-Disposition", `attachment; filename="ewer-report-${new Date().toISOString().slice(0, 10)}.csv"`);
+        res.setHeader("Content-Disposition", `attachment; filename="ewer-overview-${dateStr}.csv"`);
         res.send(rows.join("\n"));
       } else {
         res.json(report);
