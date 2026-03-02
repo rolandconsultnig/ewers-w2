@@ -238,6 +238,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ? await storage.getIncidentsFiltered({ state, lga, reportingMethod })
       : await storage.getIncidents();
 
+    console.log(`[API] GET /api/incidents => ${rows.length} rows`);
+    res.set('Cache-Control', 'no-store');
     res.json(rows);
   });
 
@@ -1310,6 +1312,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/public/incidents", async (_req, res) => {
     try {
       const incidents = await storage.getIncidents();
+      console.log(`[API] GET /api/public/incidents => ${incidents.length} rows`);
+      res.set('Cache-Control', 'no-store');
       res.json(incidents);
     } catch (error) {
       console.error("Failed to fetch public incidents:", error);

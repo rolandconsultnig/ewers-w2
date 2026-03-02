@@ -163,13 +163,12 @@ async function seedIncidents() {
     
     const reportedAt = randomDate();
     
-    // Vary status
-    const statuses = ['active', 'active', 'active', 'resolved', 'pending'];
+    // Vary status - all set to active so they appear on dashboard
+    const statuses = ['active', 'active', 'active', 'active', 'resolved'];
     const status = statuses[Math.floor(Math.random() * statuses.length)];
     
-    // Vary verification status
-    const verificationStatuses = ['verified', 'verified', 'partially_verified', 'unverified'];
-    const verificationStatus = verificationStatuses[Math.floor(Math.random() * verificationStatuses.length)];
+    // All incidents marked as verified
+    const verificationStatus = 'verified';
     
     // Random impacted population
     const impactedPopulation = Math.floor(Math.random() * 50000) + 100;
