@@ -2,12 +2,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import PageTemplate from "@/components/modules/PageTemplate";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FileText, BarChart3, Award, Calendar, FileIcon, Table2, Download, Printer } from "lucide-react";
+import { FileText, BarChart3, Award, Calendar, FileIcon, Table2, Download } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import {
   Select,
   SelectContent,
@@ -37,6 +39,166 @@ async function downloadReport(format: "csv" | "json", days: number, type: string
   URL.revokeObjectURL(url);
 }
 
+async function downloadPdfReport(days: number, type: string = "overview") {
+  const jwt = localStorage.getItem("jwt");
+  const headers: Record<string, string> = {};
+  if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
+
+  const res = await fetch(`/api/enterprise/export/report?format=json&days=${days}&type=${type}`, {
+    credentials: "include",
+    headers,
+  });
+  if (!res.ok) throw new Error("Export failed");
+  const data = await res.json();
+
+  const doc = new jsPDF();
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const typeLabel = type.charAt(0).toUpperCase() + type.slice(1);
+
+  // Header
+  doc.setFontSize(18);
+  doc.setTextColor(30, 58, 95);
+  doc.text("EWERS Report", 14, 20);
+  doc.setFontSize(12);
+  doc.setTextColor(100);
+  doc.text(`${typeLabel} Report  |  Period: Last ${days} days  |  Generated: ${dateStr}`, 14, 28);
+  doc.setDrawColor(30, 58, 95);
+  doc.line(14, 31, 196, 31);
+
+  let y = 38;
+
+  if (type === "overview" && data.kpis) {
+    doc.setFontSize(14);
+    doc.setTextColor(30, 58, 95);
+    doc.text("Key Performance Indicators", 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Metric", "Value"]],
+      body: [
+        ["Total Incidents", String(data.kpis.totalIncidents)],
+        ["Active Incidents", String(data.kpis.activeIncidents)],
+        ["Critical Alerts", String(data.kpis.criticalAlerts)],
+        ["Resolution Rate", `${data.kpis.resolutionRate}%`],
+        ["Avg Response Time", `${data.kpis.avgResponseTimeHours} hrs`],
+        ["High Risk Zones", String(data.kpis.highRiskZones)],
+      ],
+      theme: "striped",
+      headStyles: { fillColor: [30, 58, 95] },
+    });
+    y = (doc as any).lastAutoTable.finalY + 10;
+
+    if (data.regionalHeatMap?.length) {
+      doc.setFontSize(14);
+      doc.setTextColor(30, 58, 95);
+      doc.text("Regional Heat Map", 14, y);
+      y += 4;
+      autoTable(doc, {
+        startY: y,
+        head: [["Region", "State", "Incidents", "Active", "Risk Level"]],
+        body: data.regionalHeatMap.map((r: any) => [r.region, r.state ?? "", r.incidentCount, r.activeCount, r.riskLevel]),
+        theme: "striped",
+        headStyles: { fillColor: [30, 58, 95] },
+      });
+      y = (doc as any).lastAutoTable.finalY + 10;
+    }
+
+    if (data.trends?.length) {
+      doc.setFontSize(14);
+      doc.setTextColor(30, 58, 95);
+      doc.text("Trend Data", 14, y);
+      y += 4;
+      autoTable(doc, {
+        startY: y,
+        head: [["Date", "Incidents", "Alerts"]],
+        body: data.trends.map((t: any) => [t.date, t.incidents, t.alerts]),
+        theme: "striped",
+        headStyles: { fillColor: [30, 58, 95] },
+      });
+    }
+  } else if (type === "incidents" && data.incidents?.length) {
+    doc.setFontSize(14);
+    doc.setTextColor(30, 58, 95);
+    doc.text(`Incidents (${data.count} records)`, 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["ID", "Title", "Severity", "Status", "Region", "State", "Reported At"]],
+      body: data.incidents.map((i: any) => [
+        i.id, i.title?.slice(0, 30), i.severity, i.status, i.region ?? "", i.state ?? "",
+        i.reportedAt ? new Date(i.reportedAt).toLocaleDateString() : "",
+      ]),
+      theme: "striped",
+      headStyles: { fillColor: [30, 58, 95] },
+      styles: { fontSize: 8 },
+    });
+  } else if (type === "risk" && data.regions?.length) {
+    doc.setFontSize(14);
+    doc.setTextColor(30, 58, 95);
+    doc.text("Regional Risk Assessment", 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Region", "State", "Incident Count", "Active Count", "Risk Level"]],
+      body: data.regions.map((r: any) => [r.region, r.state ?? "", r.incidentCount, r.activeCount, r.riskLevel]),
+      theme: "striped",
+      headStyles: { fillColor: [30, 58, 95] },
+    });
+  } else if (type === "response") {
+    if (data.kpis) {
+      doc.setFontSize(14);
+      doc.setTextColor(30, 58, 95);
+      doc.text("Response Effectiveness", 14, y);
+      y += 4;
+      autoTable(doc, {
+        startY: y,
+        head: [["Metric", "Value"]],
+        body: [
+          ["Resolution Rate", `${data.kpis.resolutionRate}%`],
+          ["Avg Response Time", `${data.kpis.avgResponseTimeHours} hrs`],
+          ["Total Incidents", String(data.kpis.totalIncidents)],
+          ["Active Incidents", String(data.kpis.activeIncidents)],
+          ["Critical Alerts", String(data.kpis.criticalAlerts)],
+        ],
+        theme: "striped",
+        headStyles: { fillColor: [30, 58, 95] },
+      });
+      y = (doc as any).lastAutoTable.finalY + 10;
+    }
+    if (data.alerts?.length) {
+      doc.setFontSize(14);
+      doc.setTextColor(30, 58, 95);
+      doc.text("Alerts", 14, y);
+      y += 4;
+      autoTable(doc, {
+        startY: y,
+        head: [["ID", "Title", "Severity", "Status", "Region", "Generated At"]],
+        body: data.alerts.map((a: any) => [
+          a.id, a.title?.slice(0, 35), a.severity, a.status, a.region ?? "",
+          a.generatedAt ? new Date(a.generatedAt).toLocaleDateString() : "",
+        ]),
+        theme: "striped",
+        headStyles: { fillColor: [30, 58, 95] },
+        styles: { fontSize: 8 },
+      });
+    }
+  } else {
+    doc.setFontSize(12);
+    doc.text("No data available for this report type.", 14, y);
+  }
+
+  // Footer on every page
+  const pageCount = doc.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text(`EWERS - Early Warning and Emergency Response System  |  Page ${i} of ${pageCount}`, 14, 290);
+  }
+
+  doc.save(`ewer-${type}-${dateStr}.pdf`);
+}
+
 export default function ReportingPage() {
   const [activeTab, setActiveTab] = useState("standard");
   const [exportDays, setExportDays] = useState("30");
@@ -50,6 +212,18 @@ export default function ReportingPage() {
       toast({ title: `Report exported as ${format.toUpperCase()}` });
     } catch {
       toast({ title: "Export failed", variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handlePdfExport = async (type: string = "overview") => {
+    setExporting(true);
+    try {
+      await downloadPdfReport(parseInt(exportDays), type);
+      toast({ title: "Report exported as PDF" });
+    } catch {
+      toast({ title: "PDF export failed", variant: "destructive" });
     } finally {
       setExporting(false);
     }
@@ -243,6 +417,15 @@ export default function ReportingPage() {
                         >
                           {exporting ? "..." : "Generate"}
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={exporting}
+                          onClick={() => handlePdfExport(report.exportType)}
+                        >
+                          <FileIcon className="h-3.5 w-3.5 mr-1 text-red-600" />
+                          PDF
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -397,7 +580,7 @@ export default function ReportingPage() {
             <CardHeader>
               <CardTitle>Report Export & Delivery</CardTitle>
               <CardDescription>
-                Export executive reports as CSV (Excel-compatible) or JSON. Use Print to save as PDF.
+                Export executive reports as CSV (Excel-compatible), JSON, or PDF.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -434,14 +617,15 @@ export default function ReportingPage() {
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={() => window.print()}
+                    onClick={() => handlePdfExport()}
+                    disabled={exporting}
                   >
-                    <Printer className="h-4 w-4 mr-2" />
-                    Print / Save as PDF
+                    <FileIcon className="h-4 w-4 mr-2 text-red-600" />
+                    Export PDF
                   </Button>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  CSV includes KPIs, regional heat map, and trend data. JSON includes full structured data. Use your browser&apos;s Print dialog to save the current page as PDF.
+                  CSV includes KPIs, regional heat map, and trend data. JSON includes full structured data. PDF generates a formatted report document.
                 </p>
               </div>
             </CardContent>
