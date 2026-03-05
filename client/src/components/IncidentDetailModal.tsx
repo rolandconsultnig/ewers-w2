@@ -74,6 +74,26 @@ export function IncidentDetailModal({ incident, open, onOpenChange }: IncidentDe
     },
   });
 
+  const retranscribeMutation = useMutation({
+    mutationFn: async () => {
+      if (!internalIncident) throw new Error("No incident selected");
+      const res = await fetch(`/api/incidents/${internalIncident.id}/retranscribe`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to transcribe audio");
+      }
+      return res.json() as Promise<{ incident: Incident; transcription: any }>;
+    },
+    onSuccess: (data) => {
+      setInternalIncident(data.incident);
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
+    },
+  });
+
   if (!internalIncident) return null;
 
   const info = crisisTypes[internalIncident.category] || {
@@ -125,6 +145,50 @@ export function IncidentDetailModal({ incident, open, onOpenChange }: IncidentDe
               <p>{new Date(internalIncident.reportedAt).toLocaleString()}</p>
             </div>
           </div>
+          {(internalIncident.audioRecordingUrl || internalIncident.audioTranscription) && (
+            <div className="border rounded-lg p-3 bg-muted/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold">Voice report</h4>
+                {internalIncident.audioRecordingUrl && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => retranscribeMutation.mutate()}
+                    disabled={retranscribeMutation.isPending}
+                  >
+                    {retranscribeMutation.isPending
+                      ? "Transcribing..."
+                      : internalIncident.audioTranscription
+                      ? "Re-transcribe"
+                      : "Transcribe audio"}
+                  </Button>
+                )}
+              </div>
+              {internalIncident.audioRecordingUrl && (
+                <audio
+                  controls
+                  className="w-full mt-1"
+                  src={internalIncident.audioRecordingUrl}
+                >
+                  Your browser does not support the audio element.
+                </audio>
+              )}
+              {internalIncident.audioTranscription && (
+                <div className="text-xs text-muted-foreground mt-2 space-y-1">
+                  <p className="font-medium">Transcription</p>
+                  <p className="text-sm text-foreground">{internalIncident.audioTranscription}</p>
+                  {typeof (internalIncident as any).transcriptionConfidence === "number" && (
+                    <p>Confidence: {(internalIncident as any).transcriptionConfidence}%</p>
+                  )}
+                </div>
+              )}
+              {retranscribeMutation.isError && (
+                <p className="text-xs text-red-600">
+                  {(retranscribeMutation.error as Error).message}
+                </p>
+              )}
+            </div>
+          )}
           <div className="border rounded-lg p-3 bg-blue-50/50">
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-sm font-semibold">AI Recommendations</h4>
