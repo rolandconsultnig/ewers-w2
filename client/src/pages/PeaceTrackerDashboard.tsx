@@ -248,10 +248,10 @@ export default function PeaceTrackerDashboard() {
   const isIncreasing = parseFloat(trendPercentage) > 0;
 
   return (
-    <MainLayout title="Crisis Monitoring Dashboard">
+    <MainLayout title="Conflict Monitoring Dashboard">
     <div className="container mx-auto py-6 px-4">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Crisis Monitoring Dashboard</h1>
+        <h1 className="text-3xl font-bold">Conflict Monitoring Dashboard</h1>
         <div className="flex gap-2">
           <Button onClick={loadAiInsights} disabled={isLoadingInsights} variant="outline">
             <Brain className="h-4 w-4 mr-2" />
@@ -377,7 +377,7 @@ export default function PeaceTrackerDashboard() {
                 ))}
             </div>
             <Button variant="outline" size="sm" className="mt-3" asChild>
-              <Link href="/map">View on crisis map</Link>
+              <Link href="/map">View on conflict map</Link>
             </Button>
           </CardContent>
         </Card>

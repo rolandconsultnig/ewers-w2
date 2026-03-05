@@ -2107,7 +2107,7 @@ export default function DataCollectionPage() {
                           
                           <div className="flex justify-between items-center px-3 py-2 bg-slate-50 rounded">
                             <div>
-                              <p className="font-medium">Post-Crisis Recovery</p>
+                              <p className="font-medium">Post-Conflict Recovery</p>
                               <p className="text-xs text-slate-500">Adaptive framework</p>
                             </div>
                             <Button size="sm" variant="ghost">Use</Button>

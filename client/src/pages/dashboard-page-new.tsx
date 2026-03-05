@@ -205,7 +205,7 @@ export default function DashboardPage() {
             <CardHeader className="p-6 pb-2">
               <div className="flex justify-between items-center">
                 <div>
-                  <CardTitle>Nigeria Crisis Map</CardTitle>
+                  <CardTitle>Nigeria Conflict Map</CardTitle>
                   <CardDescription>
                     Interactive map of incidents across Nigeria
                   </CardDescription>

@@ -1,5 +1,5 @@
 /**
- * News Service - Fetches Nigeria crisis/conflict news from a configurable API.
+ * News Service - Fetches Nigeria conflict-related news from a configurable API.
  *
  * This is implemented against a generic JSON news API:
  * - Configure NEWS_API_URL and NEWS_API_KEY in your .env
@@ -33,7 +33,7 @@ export async function fetchNigeriaCrisisNews(limit: number = 20): Promise<NewsIt
   try {
     const response = await axios.get(apiUrl, {
       params: {
-        q: "Nigeria crisis OR conflict OR unrest OR insecurity OR banditry OR kidnapping",
+        q: "Nigeria conflict OR unrest OR insecurity OR banditry OR kidnapping",
         lang: "en",
         max: limit,
       },
@@ -71,7 +71,7 @@ export async function fetchNigeriaCrisisNews(limit: number = 20): Promise<NewsIt
         : "news",
     }));
   } catch (error) {
-    logger.error("Failed to fetch Nigeria crisis news", { error });
+    logger.error("Failed to fetch Nigeria conflict news", { error });
     return [];
   }
 }

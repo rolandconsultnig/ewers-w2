@@ -1,5 +1,5 @@
 /**
- * Analytics Service - Crisis analytics and reporting system
+ * Analytics Service - Conflict analytics and reporting system
  */
 import { db } from "../db";
 import { incidents, alerts, accessLogs } from "@shared/schema";

@@ -352,7 +352,7 @@ export default function PeaceTrackerInternalDashboard() {
               </div>
               <div className="mt-6">
                 <Link href="/map">
-                  <Button className="w-full">View Crisis Map</Button>
+                  <Button className="w-full">View Conflict Map</Button>
                 </Link>
               </div>
             </CardContent>

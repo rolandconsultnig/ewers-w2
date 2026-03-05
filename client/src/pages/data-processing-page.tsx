@@ -318,7 +318,7 @@ export default function DataProcessingPage() {
                     </CardHeader>
                     <CardContent>
                       <p className="text-sm text-muted-foreground">
-                        Extract key terms, phrases, named entities, and topics from unstructured text to identify emerging conflict issues, involved parties, and potential crisis triggers.
+                        Extract key terms, phrases, named entities, and topics from unstructured text to identify emerging conflict issues, involved parties, and potential conflict triggers.
                       </p>
                       <div className="mt-4">
                         <Button 
@@ -370,7 +370,7 @@ export default function DataProcessingPage() {
                     </CardHeader>
                     <CardContent>
                       <p className="text-sm text-muted-foreground">
-                        Create condensed summaries of lengthy reports, articles, and social media discussions to facilitate rapid information processing during crisis situations.
+                        Create condensed summaries of lengthy reports, articles, and social media discussions to facilitate rapid information processing during conflict situations.
                       </p>
                       <div className="mt-4">
                         <Button 

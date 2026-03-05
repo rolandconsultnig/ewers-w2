@@ -360,7 +360,7 @@ export default function ExecutiveDashboardPage() {
               <Link href="/map">
                 <Button variant="outline">
                   <MapPin className="mr-2 h-4 w-4" />
-                  Crisis Map
+                  Conflict Map
                 </Button>
               </Link>
               <Link href="/reporting">

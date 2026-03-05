@@ -74,7 +74,7 @@ export default function RiskAssessmentPage() {
   return (
     <PageTemplate 
       title="Risk Assessment & Conflict Prediction"
-      description="Assess conflict risks and predict potential crisis situations"
+      description="Assess conflict risks and predict potential conflict situations"
       toolbar={toolbar}
     >
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">

@@ -210,12 +210,12 @@ export default function MapPage() {
   }, []);
   
   return (
-    <MainLayout title="Crisis Map">
+    <MainLayout title="Conflict Map">
       <Card className="shadow-lg">
         <CardHeader className="p-6 pb-2">
           <div className="flex justify-between items-center">
             <div>
-              <CardTitle>Nigeria Crisis Map (All Regions)</CardTitle>
+              <CardTitle>Nigeria Conflict Map (All Regions)</CardTitle>
               <CardDescription>
                 Comprehensive view of incidents across all Nigerian regions
               </CardDescription>

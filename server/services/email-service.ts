@@ -48,13 +48,13 @@ export interface EmailTemplate {
 
 const templates: Record<string, (data: Record<string, string>) => EmailTemplate> = {
   crisis_alert: (data) => ({
-    subject: `[URGENT] Crisis Alert: ${data.title || "New Incident"}`,
-    text: `Crisis Alert\n\n${data.description || "A new crisis has been reported."}\n\nLocation: ${data.location || "N/A"}\nSeverity: ${data.severity || "N/A"}`,
+    subject: `[URGENT] Conflict Alert: ${data.title || "New Incident"}`,
+    text: `Conflict Alert\n\n${data.description || "A new conflict has been reported."}\n\nLocation: ${data.location || "N/A"}\nSeverity: ${data.severity || "N/A"}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px;">
-        <h2 style="color: #dc2626;">Crisis Alert</h2>
+        <h2 style="color: #dc2626;">Conflict Alert</h2>
         <p><strong>${data.title || "New Incident"}</strong></p>
-        <p>${data.description || "A new crisis has been reported."}</p>
+        <p>${data.description || "A new conflict has been reported."}</p>
         <p><strong>Location:</strong> ${data.location || "N/A"}</p>
         <p><strong>Severity:</strong> ${data.severity || "N/A"}</p>
       </div>

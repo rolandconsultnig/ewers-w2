@@ -177,7 +177,7 @@ export default function InterAgencyPortalPage() {
       email: "nigeria@msf.org",
       phone: "+234-1-3333333",
       expertise: ["Medical Emergency Response", "Healthcare"],
-      description: "MSF provides medical humanitarian assistance to save lives and ease the suffering of people in crisis situations in Nigeria."
+      description: "MSF provides medical humanitarian assistance to save lives and ease the suffering of people in conflict situations in Nigeria."
     },
     {
       id: "redcross",
@@ -370,7 +370,7 @@ export default function InterAgencyPortalPage() {
             <CardHeader className="p-6 pb-2">
               <CardTitle>Inter-Agency Response Coordination</CardTitle>
               <CardDescription>
-                Manage and coordinate crisis response efforts across multiple agencies
+                Manage and coordinate conflict response efforts across multiple agencies
               </CardDescription>
             </CardHeader>
             <CardContent className="p-6">
@@ -585,7 +585,7 @@ export default function InterAgencyPortalPage() {
             <CardHeader className="pb-2">
               <CardTitle>Agency Directory</CardTitle>
               <CardDescription>
-                Partner agencies for crisis response
+                Partner agencies for conflict response
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-3">

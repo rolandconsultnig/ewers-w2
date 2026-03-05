@@ -67,20 +67,20 @@ export function SocialMediaMonitor() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to run crisis ingest");
+        throw new Error(data.error || "Failed to run conflict ingest");
       }
       return res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/social/posts"] });
       toast({
-        title: "Crisis ingest completed",
+        title: "Conflict ingest completed",
         description: data?.message || "Social + news data ingested. Incidents may have been created.",
       });
     },
     onError: (err: Error) => {
       toast({
-        title: "Crisis ingest failed",
+        title: "Conflict ingest failed",
         description: err.message,
         variant: "destructive",
       });
@@ -247,7 +247,7 @@ export function SocialMediaMonitor() {
   return (
     <Card className="w-full">
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <CardTitle>Social Media Crisis Monitoring</CardTitle>
+        <CardTitle>Social Media Conflict Monitoring</CardTitle>
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -265,7 +265,7 @@ export function SocialMediaMonitor() {
             disabled={crisisIngestMutation.isPending}
           >
             <RefreshCw className={`mr-2 h-4 w-4 ${crisisIngestMutation.isPending ? "animate-spin" : ""}`} />
-            {crisisIngestMutation.isPending ? "Running…" : "Run Live Crisis Ingest"}
+            {crisisIngestMutation.isPending ? "Running…" : "Run Live Conflict Ingest"}
           </Button>
         </div>
       </CardHeader>

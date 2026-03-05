@@ -632,7 +632,7 @@ export default function ResponsePlansPage() {
           <DialogHeader>
             <DialogTitle>Create Response Plan</DialogTitle>
             <DialogDescription>
-              Create a new response plan to coordinate crisis intervention activities.
+              Create a new response plan to coordinate conflict intervention activities.
             </DialogDescription>
           </DialogHeader>
           

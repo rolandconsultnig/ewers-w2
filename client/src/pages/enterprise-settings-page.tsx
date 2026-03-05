@@ -261,7 +261,7 @@ export default function EnterpriseSettingsPage() {
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                   <CardTitle>Alert Templates</CardTitle>
-                  <CardDescription>Reusable templates for crisis alerts</CardDescription>
+                  <CardDescription>Reusable templates for conflict alerts</CardDescription>
                 </div>
                 <Button
                   onClick={() => {
@@ -460,7 +460,7 @@ export default function EnterpriseSettingsPage() {
                       <Textarea
                         id="watch-words-list"
                         className="mt-2 min-h-[240px] font-mono text-sm"
-                        placeholder="violence\nattack\ncrisis\nprotest"
+                        placeholder="violence\nattack\nconflict\nprotest"
                         value={watchWordsDraft}
                         onChange={(e) => setWatchWordsDraft(e.target.value)}
                       />

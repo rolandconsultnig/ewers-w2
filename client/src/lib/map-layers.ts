@@ -1,5 +1,5 @@
 /**
- * Satellite and basemap layer configurations for the Nigeria Crisis Map.
+ * Satellite and basemap layer configurations for the Nigeria Conflict Map.
  * Includes Landsat (via Esri), NASA, and other satellite imagery systems.
  */
 

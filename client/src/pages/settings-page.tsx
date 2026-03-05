@@ -97,7 +97,7 @@ type NotificationRule = {
   actions: {
     notifyRoles?: string[];
     notifyUserIds?: number[];
-    notificationType?: "info" | "warning" | "critical" | "crisis";
+    notificationType?: "info" | "warning" | "critical" | "conflict";
     titleTemplate?: string;
     messageTemplate?: string;
   };
@@ -639,7 +639,7 @@ export default function SettingsPage() {
                                           <SelectItem value="info">info</SelectItem>
                                           <SelectItem value="warning">warning</SelectItem>
                                           <SelectItem value="critical">critical</SelectItem>
-                                          <SelectItem value="crisis">crisis</SelectItem>
+                                          <SelectItem value="conflict">conflict</SelectItem>
                                         </SelectContent>
                                       </Select>
                                     </div>
