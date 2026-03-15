@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'wouter';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Circle, useMapEvents, LayersControl } from 'react-leaflet';
 import { Incident } from '@shared/schema';
 import { MAP_LAYERS, DEFAULT_LAYER_ID } from '@/lib/map-layers';
@@ -679,9 +680,11 @@ export default function NigeriaMap({
                   </div>
                   
                   <div className="flex gap-2">
-                    <Button className="flex-1 text-xs h-7" variant="default">
-                      View Details
-                    </Button>
+                    <Link href={`/incidents/${(incident as any).id}`}>
+                      <Button className="flex-1 text-xs h-7" variant="default">
+                        View Details
+                      </Button>
+                    </Link>
                     <Button 
                       className="text-xs h-7 px-2" 
                       variant={isPinned ? "default" : "outline"}

@@ -8,6 +8,7 @@ import { promisify } from "util";
 import jwt from "jsonwebtoken";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
+import { getPermissionsForRole } from "./role-permissions";
 import { db } from "./db";
 import { passwordResetTokens } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -39,6 +40,12 @@ export function verifyJWT(token: string): { id: number; username: string; role: 
   }
 }
 
+/** Return user for API responses: strip password, keep permissions and all else. */
+export function toSafeUser(user: SelectUser): Omit<SelectUser, "password"> & { password?: never } {
+  const { password: _p, ...rest } = user;
+  return rest as Omit<SelectUser, "password"> & { password?: never };
+}
+
 // RBAC: Super Admin (7), Supervisor (5+), Field Agent (1-4)
 export function requireRole(allowedRoles: string[], minSecurityLevel?: number) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -51,6 +58,15 @@ export function requireRole(allowedRoles: string[], minSecurityLevel?: number) {
     }
     next();
   };
+}
+
+/** Check if user has a specific feature permission. Admin or '*' always has access. */
+export function hasPermission(user: SelectUser | undefined, permissionId: string): boolean {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  const perms = user.permissions as string[] | null | undefined;
+  if (!Array.isArray(perms)) return false;
+  return perms.includes("*") || perms.includes(permissionId);
 }
 
 async function hashPassword(password: string) {
@@ -70,11 +86,20 @@ export function setupAuth(app: Express) {
   // In production, cookie.secure=true so browser only sends cookie over HTTPS.
   // If your app is behind HTTP (no SSL), set COOKIE_SECURE=false in .env so login/session work.
   const cookieSecure = process.env.COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production';
+  // In development, use in-memory session by default so app works without a session table.
+  // Set USE_PG_SESSION=1 to use Postgres session store in development.
+  const useMemorySession =
+    process.env.NODE_ENV === "development" && process.env.USE_PG_SESSION !== "1";
+  const sessionStore = useMemorySession ? new session.MemoryStore() : storage.sessionStore;
+  if (useMemorySession) {
+    console.warn("[auth] Using in-memory session store (dev). Sessions reset on server restart. Set USE_PG_SESSION=1 to use Postgres.");
+  }
+
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET || 'ewers-secret-key',
     resave: false,
     saveUninitialized: false,
-    store: storage.sessionStore,
+    store: sessionStore,
     cookie: {
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       secure: cookieSecure,
@@ -83,20 +108,48 @@ export function setupAuth(app: Express) {
   };
 
   app.set("trust proxy", 1);
-  app.use(session(sessionSettings));
-  app.use(passport.initialize());
-  app.use(passport.session());
+  // Skip session for Socket.io handshake so /socket.io requests don't hit DB (avoids 500 when store fails)
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/socket.io")) return next();
+    const sessionMw = session(sessionSettings);
+    sessionMw(req, res, (err: unknown) => {
+      if (err) {
+        console.warn("[auth] Session error:", err instanceof Error ? err.message : err);
+        return next(); // continue without session so /api/user returns null and JWT/login can still work
+      }
+      next();
+    });
+  });
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/socket.io")) return next();
+    passport.initialize()(req, res, next);
+  });
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/socket.io")) return next();
+    passport.session()(req, res, (err: unknown) => {
+      if (err) {
+        console.warn("[auth] Passport session error:", err instanceof Error ? err.message : err);
+        return next();
+      }
+      next();
+    });
+  });
 
-  // JWT auth fallback - if no session user, try Bearer token
+  // JWT auth fallback - if no session user, try Bearer token (skip for socket.io)
   app.use(async (req, res, next) => {
+    if (req.path.startsWith("/socket.io")) return next();
     if (req.user) return next();
     const auth = req.headers.authorization;
     const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
     if (token) {
-      const payload = verifyJWT(token);
-      if (payload) {
-        const user = await storage.getUser(payload.id);
-        if (user && user.active !== false) req.user = user;
+      try {
+        const payload = verifyJWT(token);
+        if (payload) {
+          const user = await storage.getUser(payload.id);
+          if (user && user.active !== false) req.user = user;
+        }
+      } catch (err) {
+        return next(err);
       }
     }
     next();
@@ -104,6 +157,7 @@ export function setupAuth(app: Express) {
 
   // Ensure isAuthenticated works for both session and JWT (req.user presence)
   app.use((req, _res, next) => {
+    if (req.path.startsWith("/socket.io")) return next();
     const orig = req.isAuthenticated.bind(req);
     (req as any).isAuthenticated = function (): boolean {
       return !!req.user || orig();
@@ -159,7 +213,7 @@ export function setupAuth(app: Express) {
 
     req.login(user, (err) => {
       if (err) return next(err);
-      res.status(201).json(user);
+      res.status(201).json(toSafeUser(user));
     });
   });
   
@@ -179,9 +233,14 @@ export function setupAuth(app: Express) {
         return res.status(400).json({ error: "Username already exists" });
       }
       
+      const role = req.body.role || "user";
+      const permissions = Array.isArray(req.body.permissions) && req.body.permissions.length > 0
+        ? req.body.permissions
+        : await getPermissionsForRole(role);
       const newUser = await storage.createUser({
         ...req.body,
         password: await hashPassword(req.body.password || 'password123'),
+        permissions,
       });
       
       res.status(201).json(newUser);
@@ -236,7 +295,7 @@ export function setupAuth(app: Express) {
       req.login(user, (loginErr) => {
         if (loginErr) return next(loginErr);
         const token = generateJWT(user);
-        res.status(200).json({ user, token });
+        res.status(200).json({ user: toSafeUser(user), token });
       });
     })(req, res, next);
   };
@@ -267,19 +326,19 @@ export function setupAuth(app: Express) {
   app.get("/api/user", (req, res) => {
     // Return 200 with null when not logged in (avoids 401 console noise on auth check)
     if (!req.isAuthenticated()) return res.status(200).json(null);
-    res.json(req.user);
+    res.json(toSafeUser(req.user as SelectUser));
   });
 
   // API auth aliases
   app.get("/api/auth/me", (req, res) => {
     if (!req.isAuthenticated()) return res.status(200).json(null);
-    res.json(req.user);
+    res.json(toSafeUser(req.user as SelectUser));
   });
 
   // Profile management - update own profile
   app.get("/api/user/profile", (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    res.json(req.user);
+    res.json(toSafeUser(req.user as SelectUser));
   });
 
   app.put("/api/user/profile", async (req, res) => {
@@ -298,7 +357,7 @@ export function setupAuth(app: Express) {
       updateData.password = await hashPassword(password);
     }
     const updated = await storage.updateUser(currentUser.id, updateData);
-    res.json(updated);
+    res.json(toSafeUser(updated));
   });
 
   app.get("/api/user/all", async (req, res) => {

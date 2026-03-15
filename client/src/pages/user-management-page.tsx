@@ -3,6 +3,7 @@ import MainLayout from "@/components/layout/MainLayout";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AccessLog, User, insertUserSchema } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getDefaultPermissionsForRole, getFeaturesByCategory, ROLE_LABELS, ROLE_IDS } from "@shared/permissions";
 import { useToast } from "@/hooks/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -73,8 +74,10 @@ import {
   Key,
   Edit,
   Trash2,
-  CheckCircle
+  CheckCircle,
+  ShieldCheck
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -138,7 +141,13 @@ export default function UserManagementPage() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
-  
+  const [permissionsDialogOpen, setPermissionsDialogOpen] = useState(false);
+  const [permissionUser, setPermissionUser] = useState<User | null>(null);
+  const [selectedPermissionIds, setSelectedPermissionIds] = useState<string[]>([]);
+  const [roleTemplateDialogOpen, setRoleTemplateDialogOpen] = useState(false);
+  const [roleTemplateRole, setRoleTemplateRole] = useState<string | null>(null);
+  const [roleTemplatePermissionIds, setRoleTemplatePermissionIds] = useState<string[]>([]);
+
   // Fetch users
   const { 
     data: users, 
@@ -155,6 +164,31 @@ export default function UserManagementPage() {
     error: auditLogsError,
   } = useQuery<AccessLog[]>({
     queryKey: ["/api/enterprise/audit-logs?limit=50"],
+  });
+
+  const { data: permissionsData } = useQuery<{ features: { id: string; label: string; category: string; description?: string }[]; byCategory: Record<string, { id: string; label: string; category: string; description?: string }[]> }>({
+    queryKey: ["/api/permissions/features"],
+    enabled: !!users && users.length >= 0,
+  });
+  const { data: roleTemplates } = useQuery<Record<string, string[]>>({
+    queryKey: ["/api/permissions/roles"],
+    enabled: !!users && users.length >= 0,
+  });
+  const featuresByCategory = permissionsData?.byCategory ?? getFeaturesByCategory();
+  const allFeatures = permissionsData?.features ?? [];
+
+  const saveRoleTemplateMutation = useMutation({
+    mutationFn: async ({ role, permissions }: { role: string; permissions: string[] }) => {
+      const res = await apiRequest("PUT", `/api/permissions/roles/${role}`, { permissions });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/permissions/roles"] });
+      toast({ title: "Role permissions saved", description: "Template updated. New users of this role will get these permissions." });
+      setRoleTemplateDialogOpen(false);
+      setRoleTemplateRole(null);
+    },
+    onError: (e: Error) => toast({ title: "Failed to save", description: e.message, variant: "destructive" }),
   });
   
   // Create form using react-hook-form
@@ -234,9 +268,10 @@ export default function UserManagementPage() {
   const createUserMutation = useMutation({
     mutationFn: async (data: UserFormValues) => {
       const { confirmPassword, ...userData } = data;
-      
-      // Use the new endpoint for creating users when authenticated
-      const res = await apiRequest("POST", "/api/user/create", userData);
+      const permissions = Array.isArray(userData.permissions) && userData.permissions.length > 0
+        ? userData.permissions
+        : getDefaultPermissionsForRole(userData.role || "user");
+      const res = await apiRequest("POST", "/api/user/create", { ...userData, permissions });
       return await res.json();
     },
     onSuccess: () => {
@@ -434,6 +469,20 @@ export default function UserManagementPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          title="Manage permissions"
+                          onClick={() => {
+                            setPermissionUser(user);
+                            const perms = (user as any).permissions;
+                            const hasRealPerms = Array.isArray(perms) && perms.length > 0 && !(perms.length === 1 && perms[0] === "view");
+                            setSelectedPermissionIds(hasRealPerms ? [...perms] : getDefaultPermissionsForRole(user.role || "user"));
+                            setPermissionsDialogOpen(true);
+                          }}
+                        >
+                          <ShieldCheck className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => {
                             setSelectedUser(user);
                             editForm.reset({
@@ -489,6 +538,41 @@ export default function UserManagementPage() {
               </p>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>Edit permissions by role</CardTitle>
+          <CardDescription>
+            Set On/Off for each function per role. New users get these defaults; you can still override per user.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            {ROLE_IDS.map((roleId) => (
+              <div key={roleId} className="border rounded-lg p-4 flex flex-col">
+                <p className="font-medium">{ROLE_LABELS[roleId] ?? roleId}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {roleId === "admin" ? "Full system access" : roleId === "coordinator" ? "Manages response activities" : roleId === "analyst" ? "Analyzes risk indicators" : roleId === "field_agent" ? "Collects field data" : "Standard access"}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => {
+                    setRoleTemplateRole(roleId);
+                    const perms = roleTemplates?.[roleId];
+                    setRoleTemplatePermissionIds(Array.isArray(perms) ? [...perms] : getDefaultPermissionsForRole(roleId));
+                    setRoleTemplateDialogOpen(true);
+                  }}
+                >
+                  <Edit className="h-4 w-4 mr-1" />
+                  Edit permissions
+                </Button>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
       
@@ -561,58 +645,42 @@ export default function UserManagementPage() {
             <CardDescription>Module-level permissions</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="border border-neutral-200 rounded-md p-3">
-                <h3 className="font-medium mb-2">Data Collection Module</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Administrator</span>
-                    <CheckCircle className="h-4 w-4 text-green-600" />
+            <p className="text-sm text-muted-foreground mb-3">
+              Control which modules each user can access. Permissions are set per user via feature checkboxes.
+            </p>
+            <div className="space-y-2">
+              {Object.keys(featuresByCategory).length > 0 ? (
+                Object.keys(featuresByCategory).map((cat) => (
+                  <div key={cat} className="flex items-center justify-between text-sm py-1.5 border-b border-border/50 last:border-0">
+                    <span className="font-medium">{cat}</span>
+                    <span className="text-muted-foreground text-xs">Per-user</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Coordinator</span>
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Analyst</span>
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Field Agent</span>
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  </div>
-                </div>
-              </div>
-              
-              <div className="border border-neutral-200 rounded-md p-3">
-                <h3 className="font-medium mb-2">Alert Generation</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Administrator</span>
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Coordinator</span>
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Analyst</span>
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Field Agent</span>
-                    <span>—</span>
-                  </div>
-                </div>
-              </div>
+                ))
+              ) : (
+                <div className="text-sm text-muted-foreground py-2">Main Navigation, AI Assistant, Data Management, Election Monitoring, Risk Assessment, Response Management, Communications, Social Media, Administration</div>
+              )}
             </div>
           </CardContent>
           <CardFooter>
-            <Link href="/enterprise-settings">
-              <Button variant="outline" className="w-full">
-                Configure Role Permissions
-              </Button>
-            </Link>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setPermissionUser(null);
+                setSelectedPermissionIds([]);
+                if (users && users.length > 0) {
+                  const first = users[0];
+                  setPermissionUser(first);
+                  const perms = (first as any).permissions;
+                  const hasRealPerms = Array.isArray(perms) && perms.length > 0 && !(perms.length === 1 && perms[0] === "view");
+                  setSelectedPermissionIds(hasRealPerms ? [...perms] : getDefaultPermissionsForRole(first.role || "user"));
+                }
+                setPermissionsDialogOpen(true);
+              }}
+            >
+              <ShieldCheck className="h-4 w-4 mr-2" />
+              Configure Role Permissions
+            </Button>
           </CardFooter>
         </Card>
         
@@ -1078,17 +1146,40 @@ export default function UserManagementPage() {
                 />
               </div>
 
+              <FormItem>
+                <FormLabel>Feature permissions</FormLabel>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (!selectedUser) return;
+                    setPermissionUser(selectedUser);
+                    const perms = (selectedUser as any).permissions;
+                    const hasRealPerms = Array.isArray(perms) && perms.length > 0 && !(perms.length === 1 && perms[0] === "view");
+                    setSelectedPermissionIds(hasRealPerms ? [...perms] : getDefaultPermissionsForRole(selectedUser.role || "user"));
+                    setEditDialogOpen(false);
+                    setPermissionsDialogOpen(true);
+                  }}
+                >
+                  <ShieldCheck className="h-4 w-4 mr-2" />
+                  Manage permissions (checkboxes)
+                </Button>
+                <FormDescription>
+                  Choose which features this user can access. Use the shield icon in the table for the same.
+                </FormDescription>
+              </FormItem>
               <FormField
                 control={editForm.control}
                 name="permissionsText"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Permissions</FormLabel>
+                    <FormLabel>Permissions (advanced)</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g. view, create, update" {...field} value={field.value || ""} />
+                      <Input placeholder="e.g. view, dashboard, incidents:edit" {...field} value={field.value || ""} />
                     </FormControl>
                     <FormDescription>
-                      Comma-separated permissions saved on the user record
+                      Comma-separated permission IDs; or use "Manage permissions" above
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -1123,6 +1214,302 @@ export default function UserManagementPage() {
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage Permissions Dialog */}
+      <Dialog
+        open={permissionsDialogOpen}
+        onOpenChange={(open) => {
+          setPermissionsDialogOpen(open);
+          if (!open) {
+            setPermissionUser(null);
+            setSelectedPermissionIds([]);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[640px] max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Feature permissions</DialogTitle>
+            <DialogDescription>
+              Choose what each user can see and do on the platform. Admins always have full access.
+            </DialogDescription>
+          </DialogHeader>
+          {users && users.length > 0 ? (
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none">User</label>
+              <Select
+                value={permissionUser ? String(permissionUser.id) : String(users[0].id)}
+                onValueChange={(id) => {
+                  const u = users.find((x) => String(x.id) === id);
+                  if (u) {
+                    setPermissionUser(u);
+                    const perms = (u as any).permissions;
+                    const hasRealPerms = Array.isArray(perms) && perms.length > 0 && !(perms.length === 1 && perms[0] === "view");
+                    setSelectedPermissionIds(hasRealPerms ? [...perms] : getDefaultPermissionsForRole(u.role || "user"));
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select user to configure" />
+                </SelectTrigger>
+                <SelectContent>
+                  {users.map((u) => (
+                    <SelectItem key={u.id} value={String(u.id)}>
+                      {u.fullName} ({u.username}) — {u.role}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No users in the system. Add a user first, then configure permissions.</p>
+          )}
+          <div className="overflow-y-auto space-y-4 pr-2">
+            <div className="flex items-center space-x-2 rounded-lg border p-3 bg-muted/50">
+              <Checkbox
+                id="full-access"
+                checked={selectedPermissionIds.includes("*")}
+                onCheckedChange={(checked) => setSelectedPermissionIds(checked ? ["*"] : [])}
+              />
+              <label htmlFor="full-access" className="text-sm font-medium leading-none cursor-pointer">
+                Full access (all features)
+              </label>
+            </div>
+            {permissionUser && (
+              <div className="flex items-center justify-between rounded-lg border p-2">
+                <span className="text-sm text-muted-foreground">
+                  Default for <strong>{permissionUser.role || "user"}</strong>: limited by role
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedPermissionIds(getDefaultPermissionsForRole(permissionUser.role || "user"))}
+                >
+                  Reset to role default
+                </Button>
+              </div>
+            )}
+            {Object.entries(featuresByCategory).map(([category, features]) => (
+              <div key={category} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-foreground">{category}</h4>
+                  <div className="flex gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        if (selectedPermissionIds.includes("*")) return;
+                        const ids = features.map((f) => f.id);
+                        setSelectedPermissionIds((prev) => [...new Set([...prev, ...ids])]);
+                      }}
+                    >
+                      All
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() =>
+                        setSelectedPermissionIds((prev) =>
+                          selectedPermissionIds.includes("*") ? [] : prev.filter((id) => !features.some((f) => f.id === id))
+                        )
+                      }
+                    >
+                      None
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-1">
+                  {features.map((f) => {
+                    const checked = selectedPermissionIds.includes("*") || selectedPermissionIds.includes(f.id);
+                    const disabled = selectedPermissionIds.includes("*");
+                    return (
+                      <div key={f.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`perm-${f.id}`}
+                          checked={checked}
+                          disabled={disabled}
+                          onCheckedChange={(c) => {
+                            if (selectedPermissionIds.includes("*")) {
+                              setSelectedPermissionIds([f.id]);
+                              return;
+                            }
+                            setSelectedPermissionIds((prev) =>
+                              c ? [...prev, f.id] : prev.filter((x) => x !== f.id)
+                            );
+                          }}
+                        />
+                        <label
+                          htmlFor={`perm-${f.id}`}
+                          className="text-sm leading-none cursor-pointer flex-1"
+                          title={f.description}
+                        >
+                          {f.label}
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPermissionsDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!permissionUser || updateUserMutation.isPending}
+              onClick={() => {
+                if (!permissionUser) return;
+                updateUserMutation.mutate(
+                  { id: permissionUser.id, data: { permissions: selectedPermissionIds } },
+                  {
+                    onSuccess: () => {
+                      setPermissionsDialogOpen(false);
+                      setPermissionUser(null);
+                      setSelectedPermissionIds([]);
+                    },
+                  }
+                );
+              }}
+            >
+              {updateUserMutation.isPending ? "Saving..." : "Save permissions"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit role permission template dialog */}
+      <Dialog
+        open={roleTemplateDialogOpen}
+        onOpenChange={(open) => {
+          setRoleTemplateDialogOpen(open);
+          if (!open) {
+            setRoleTemplateRole(null);
+            setRoleTemplatePermissionIds([]);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[680px] max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Permissions for {roleTemplateRole ? ROLE_LABELS[roleTemplateRole] ?? roleTemplateRole : "role"}</DialogTitle>
+            <DialogDescription>
+              Tick or untick each function to set what this role can and cannot do. New users with this role get these permissions by default.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="role-full-access"
+                  checked={roleTemplatePermissionIds.includes("*")}
+                  onCheckedChange={(checked) => setRoleTemplatePermissionIds(checked ? ["*"] : [])}
+                />
+                <label htmlFor="role-full-access" className="text-sm font-medium leading-none cursor-pointer">
+                  Full access (all features)
+                </label>
+              </div>
+              {roleTemplateRole && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setRoleTemplatePermissionIds(getDefaultPermissionsForRole(roleTemplateRole))}
+                >
+                  Reset to default for this role
+                </Button>
+              )}
+            </div>
+
+            <div className="rounded-lg border bg-card p-4 flex flex-col max-h-[50vh] overflow-hidden">
+              <h3 className="text-sm font-semibold text-foreground mb-3 pb-2 border-b">
+                Application functions – tick what this role can do
+              </h3>
+              <div className="overflow-y-auto space-y-4 pr-1">
+                {Object.entries(featuresByCategory).map(([category, features]) => (
+                  <div key={category} className="space-y-2">
+                    <div className="flex items-center justify-between sticky top-0 bg-card/95 py-1 z-10">
+                      <h4 className="text-sm font-semibold text-foreground">{category}</h4>
+                      <div className="flex gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={() => {
+                            if (roleTemplatePermissionIds.includes("*")) return;
+                            const ids = features.map((f) => f.id);
+                            setRoleTemplatePermissionIds((prev) => [...new Set([...prev, ...ids])]);
+                          }}
+                        >
+                          All
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={() =>
+                            setRoleTemplatePermissionIds((prev) =>
+                              prev.includes("*") ? [] : prev.filter((id) => !features.some((f) => f.id === id))
+                            )
+                          }
+                        >
+                          None
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-0">
+                      {features.map((f) => {
+                        const checked = roleTemplatePermissionIds.includes("*") || roleTemplatePermissionIds.includes(f.id);
+                        const disabled = roleTemplatePermissionIds.includes("*");
+                        return (
+                          <div key={f.id} className="flex items-center space-x-2 py-0.5">
+                            <Checkbox
+                              id={`role-perm-${f.id}`}
+                              checked={checked}
+                              disabled={disabled}
+                              onCheckedChange={(c) => {
+                                if (roleTemplatePermissionIds.includes("*")) {
+                                  setRoleTemplatePermissionIds([f.id]);
+                                  return;
+                                }
+                                setRoleTemplatePermissionIds((prev) =>
+                                  c ? [...prev, f.id] : prev.filter((x) => x !== f.id)
+                                );
+                              }}
+                            />
+                            <label htmlFor={`role-perm-${f.id}`} className="text-sm leading-none cursor-pointer flex-1">
+                              {f.label}
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRoleTemplateDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!roleTemplateRole || saveRoleTemplateMutation.isPending}
+              onClick={() => {
+                if (!roleTemplateRole) return;
+                saveRoleTemplateMutation.mutate({ role: roleTemplateRole, permissions: roleTemplatePermissionIds });
+              }}
+            >
+              {saveRoleTemplateMutation.isPending ? "Saving..." : "Save role permissions"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

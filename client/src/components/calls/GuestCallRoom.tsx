@@ -73,7 +73,7 @@ export function GuestCallRoom({
     const socket = io(window.location.origin, {
       path: "/socket.io",
       auth: { guestToken },
-      transports: ["websocket", "polling"],
+      transports: ["polling", "websocket"],
     });
     socketRef.current = socket;
     socket.on("connect", () => {

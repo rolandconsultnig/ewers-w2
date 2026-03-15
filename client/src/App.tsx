@@ -19,6 +19,9 @@ import UserManagementPage from "@/pages/user-management-page";
 import IntegrationsPage from "@/pages/integrations-page";
 import ReportingPage from "@/pages/reporting-page";
 import ResponsePlansPage from "./pages/response-plans-page";
+import ResponderPortalPage from "./pages/responder-portal-page";
+import ResponderLoginPage from "./pages/responder-login-page";
+import IncidentDetailPage from "./pages/incident-detail-page";
 import SettingsPage from "./pages/settings-page";
 import IncidentReviewPage from "./pages/incident-review-page";
 import CollectedDataPage from "./pages/collected-data-page";
@@ -56,6 +59,7 @@ function Router() {
     <Switch>
       <Route path="/" component={HomePage} />
       <Route path="/auth" component={AuthPage} />
+      <ProtectedRoute path="/incidents/:id" component={IncidentDetailPage} />
       <Route path="/incidents" component={CaseManagementPage} />
       <ProtectedRoute path="/incident-review" component={IncidentReviewPage} />
       <Route path="/alerts" component={AlertsPage} />
@@ -75,39 +79,42 @@ function Router() {
       <ProtectedRoute path="/crises" component={CrisisPage} />
       
       {/* Data Collection & Processing */}
-      <ProtectedRoute path="/data-collection" component={DataCollectionPage} />
-      <ProtectedRoute path="/data-processing" component={DataProcessingPage} />
-      <ProtectedRoute path="/collected-data" component={CollectedDataPage} />
-      <ProtectedRoute path="/processed-data" component={ProcessedDataPage} />
+      <RoleProtectedRoute path="/data-collection" component={DataCollectionPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/data-processing" component={DataProcessingPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/collected-data" component={CollectedDataPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/processed-data" component={ProcessedDataPage} allowedRoles={["admin", "coordinator", "analyst"]} />
       
       {/* AI Assistant */}
-      <ProtectedRoute path="/ai-analysis" component={AiAnalysisPage} />
-      <ProtectedRoute path="/ai-prediction" component={AiPredictionPage} />
-      <ProtectedRoute path="/ai-advisor" component={AiAnalysisPage} />
-      <ProtectedRoute path="/peace-indicators" component={PeaceIndicatorsPage} />
+      <RoleProtectedRoute path="/ai-analysis" component={AiAnalysisPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/ai-prediction" component={AiPredictionPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/ai-advisor" component={AiAnalysisPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/peace-indicators" component={PeaceIndicatorsPage} allowedRoles={["admin", "coordinator", "analyst"]} />
       
       {/* Risk Assessment */}
-      <ProtectedRoute path="/analysis" component={RiskAssessmentPage} />
-      <ProtectedRoute path="/visualization" component={VisualizationPage} />
+      <RoleProtectedRoute path="/analysis" component={RiskAssessmentPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/visualization" component={VisualizationPage} allowedRoles={["admin", "coordinator", "analyst"]} />
       
       {/* Response Management */}
-      <ProtectedRoute path="/alerts" component={AlertsPage} />
-      <ProtectedRoute path="/case-management" component={CaseManagementPage} />
-      <ProtectedRoute path="/response-plans" component={ResponsePlansPage} />
-      <ProtectedRoute path="/voice-incident" component={VoiceIncidentPage} />
+      <RoleProtectedRoute path="/alerts" component={AlertsPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/case-management" component={CaseManagementPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/response-plans" component={ResponsePlansPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <Route path="/responder/login" component={ResponderLoginPage} />
+      <Route path="/responder/agency/:agencySlug" component={ResponderPortalPage} />
+      <Route path="/responder" component={ResponderPortalPage} />
+      <RoleProtectedRoute path="/voice-incident" component={VoiceIncidentPage} allowedRoles={["admin", "coordinator", "analyst", "field_agent"]} />
       
       {/* Communications - SMS Management */}
-      <ProtectedRoute path="/sms" component={SmsPage} />
-      <ProtectedRoute path="/sms/compose" component={SmsPage} />
-      <ProtectedRoute path="/sms/templates" component={SmsPage} />
-      <ProtectedRoute path="/sms/logs" component={SmsPage} />
+      <RoleProtectedRoute path="/sms" component={SmsPage} allowedRoles={["admin", "coordinator", "analyst", "field_agent"]} />
+      <RoleProtectedRoute path="/sms/compose" component={SmsPage} allowedRoles={["admin", "coordinator", "analyst", "field_agent"]} />
+      <RoleProtectedRoute path="/sms/templates" component={SmsPage} allowedRoles={["admin", "coordinator", "analyst", "field_agent"]} />
+      <RoleProtectedRoute path="/sms/logs" component={SmsPage} allowedRoles={["admin", "coordinator", "analyst", "field_agent"]} />
       
       {/* Social Media */}
-      <ProtectedRoute path="/social-media" component={SocialMediaPage} />
-      <ProtectedRoute path="/social-media/twitter" component={SocialMediaPage} />
-      <ProtectedRoute path="/social-media/facebook" component={SocialMediaPage} />
-      <ProtectedRoute path="/social-media/instagram" component={SocialMediaPage} />
-      <ProtectedRoute path="/social-media/tiktok" component={SocialMediaPage} />
+      <RoleProtectedRoute path="/social-media" component={SocialMediaPage} allowedRoles={["admin", "coordinator", "analyst", "field_agent"]} />
+      <RoleProtectedRoute path="/social-media/twitter" component={SocialMediaPage} allowedRoles={["admin", "coordinator", "analyst", "field_agent"]} />
+      <RoleProtectedRoute path="/social-media/facebook" component={SocialMediaPage} allowedRoles={["admin", "coordinator", "analyst", "field_agent"]} />
+      <RoleProtectedRoute path="/social-media/instagram" component={SocialMediaPage} allowedRoles={["admin", "coordinator", "analyst", "field_agent"]} />
+      <RoleProtectedRoute path="/social-media/tiktok" component={SocialMediaPage} allowedRoles={["admin", "coordinator", "analyst", "field_agent"]} />
       
       {/* Administration */}
       <RoleProtectedRoute path="/audit-logs" component={AuditLogsPage} allowedRoles={["admin"]} />
@@ -118,13 +125,13 @@ function Router() {
       <ProtectedRoute path="/settings" component={SettingsPage} />
 
       {/* Election Monitoring */}
-      <ProtectedRoute path="/election-monitoring" component={ElectionMonitoringDashboard} />
-      <ProtectedRoute path="/election-monitoring/news" component={ElectionNewsFeedPage} />
-      <ProtectedRoute path="/election-monitoring/elections" component={ElectionElectionsPage} />
-      <ProtectedRoute path="/election-monitoring/parties" component={ElectionPartiesPage} />
-      <ProtectedRoute path="/election-monitoring/politicians" component={ElectionPoliticiansPage} />
-      <ProtectedRoute path="/election-monitoring/actors" component={ElectionActorsPage} />
-      <ProtectedRoute path="/election-monitoring/violence" component={ElectionViolencePage} />
+      <RoleProtectedRoute path="/election-monitoring" component={ElectionMonitoringDashboard} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/election-monitoring/news" component={ElectionNewsFeedPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/election-monitoring/elections" component={ElectionElectionsPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/election-monitoring/parties" component={ElectionPartiesPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/election-monitoring/politicians" component={ElectionPoliticiansPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/election-monitoring/actors" component={ElectionActorsPage} allowedRoles={["admin", "coordinator", "analyst"]} />
+      <RoleProtectedRoute path="/election-monitoring/violence" component={ElectionViolencePage} allowedRoles={["admin", "coordinator", "analyst"]} />
 
       <Route component={NotFound} />
     </Switch>

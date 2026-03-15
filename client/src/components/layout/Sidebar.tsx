@@ -52,6 +52,7 @@ import { useI18n } from "@/contexts/I18nContext";
 
 // Import the IPCR logo
 import ipcr_logo from "@assets/Institute-For-Peace-And-Conflict-Resolution.jpg";
+import { ROUTE_TO_PERMISSION, getDefaultPermissionsForRole } from "@shared/permissions";
 
 interface SidebarProps {
   isMobileMenuOpen: boolean;
@@ -64,6 +65,24 @@ export default function Sidebar({ isMobileMenuOpen, closeMobileMenu }: SidebarPr
   const { t } = useI18n();
 
   const isActive = (path: string) => location === path;
+
+  const canAccessPath = (path: string) => {
+    const perm = ROUTE_TO_PERMISSION[path];
+    if (!perm) return true;
+    if (user?.role === "admin") return true;
+    const raw = (user as { permissions?: string[] })?.permissions;
+    // Use role defaults when permissions missing, empty, or legacy ['view'] so UI reflects role-based access
+    const isLegacyView = Array.isArray(raw) && raw.length === 1 && raw[0] === "view";
+    const p =
+      Array.isArray(raw) && raw.length > 0 && !isLegacyView
+        ? raw
+        : getDefaultPermissionsForRole(user?.role ?? "user");
+    if (p.includes("*")) return true;
+    if (p.includes(perm)) return true;
+    if (path === "/social-media" && p.includes("social_media")) return true;
+    const viewOnlyPaths = ["dashboard", "map", "search"];
+    return viewOnlyPaths.includes(perm) && p.includes("view");
+  };
 
   // Define module groups for the sidebar
   const moduleGroups = [
@@ -132,6 +151,7 @@ export default function Sidebar({ isMobileMenuOpen, closeMobileMenu }: SidebarPr
         { path: "/voice-incident", label: "Voice Incident Report", icon: <Mic className="mr-3 h-5 w-5" /> },
         { path: "/case-management", label: t("nav.caseManagement"), icon: <Folder className="mr-3 h-5 w-5" /> },
         { path: "/response-plans", label: "Response Plans", icon: <Workflow className="mr-3 h-5 w-5" /> },
+        { path: "/responder", label: "Responder Portal", icon: <Shield className="mr-3 h-5 w-5" /> },
       ]
     },
     {
@@ -236,7 +256,7 @@ export default function Sidebar({ isMobileMenuOpen, closeMobileMenu }: SidebarPr
               
               {expandedGroups[group.id] && (
                 <nav className="mt-2 px-2 space-y-1">
-                  {group.items.map((item) => (
+                  {group.items.filter((item) => canAccessPath(item.path)).map((item) => (
                     <Link
                       key={item.path}
                       href={item.path}

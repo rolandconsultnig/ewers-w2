@@ -1,8 +1,9 @@
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import PageTemplate from "@/components/modules/PageTemplate";
-import { Folder, CheckSquare, PenSquare, Link as LinkIcon, MessageSquare } from "lucide-react";
+import { Folder, CheckSquare, PenSquare, Link as LinkIcon, MessageSquare, ExternalLink } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
@@ -318,8 +319,14 @@ export default function CaseManagementPage() {
                           </SelectContent>
                         </Select>
                         {caseItem.incidentId && incidentsById.get(caseItem.incidentId) ? (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            {incidentsById.get(caseItem.incidentId)!.region}
+                          <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
+                            <span>{incidentsById.get(caseItem.incidentId)!.region}</span>
+                            <Link href={`/incidents/${caseItem.incidentId}`}>
+                              <Button variant="link" size="sm" className="h-auto p-0 text-xs">
+                                <ExternalLink className="h-3 w-3 mr-1" />
+                                View incident
+                              </Button>
+                            </Link>
                           </div>
                         ) : null}
                       </TableCell>

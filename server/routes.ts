@@ -37,6 +37,7 @@ import { setupAdvancedSearchRoutes } from "./routes/advanced-search";
 import { setupResponseTeamMembersRoutes } from "./routes/response-team-members";
 import { setupVoiceIncidentRoutes } from "./routes/voice-incident";
 import { setupCollaborationRoutes } from "./routes/collaboration";
+import { setupResponderWorkflowRoutes } from "./routes/responder-workflow";
 import { db } from "./db";
 import * as notificationService from "./services/notification-service";
 import { getSocialPosts, fetchFromWebAndStore } from "./services/social-posts-service";
@@ -71,6 +72,8 @@ import {
   escalationRules,
   accessLogs,
 } from "@shared/schema";
+import { PLATFORM_FEATURES, getFeaturesByCategory } from "@shared/permissions";
+import { getRolePermissionTemplates, saveRolePermissionTemplate } from "./role-permissions";
 import { desc, eq, count, sql } from "drizzle-orm";
 import path from "path";
 
@@ -136,10 +139,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const sendAlerts = async () => {
-      const activeAlerts = await storage.getActiveAlerts();
-      socket.emit("alerts", activeAlerts);
+      try {
+        const activeAlerts = await storage.getActiveAlerts();
+        socket.emit("alerts", activeAlerts);
+      } catch (_e) {
+        socket.emit("alerts", []);
+      }
     };
-    await sendAlerts();
+    await sendAlerts().catch(() => {});
     const alertInterval = setInterval(sendAlerts, 30000);
 
     socket.on("join-conversation", (conversationId: number) => {
@@ -148,23 +155,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     socket.on("leave-conversation", (conversationId: number) => {
       socket.leave(`conversation:${conversationId}`);
     });
+    socket.on("chat:typing-start", (conversationId: number) => {
+      if (userId != null) {
+        socket.to(`conversation:${conversationId}`).emit("chat:typing", {
+          conversationId,
+          userId,
+          username: username || "Unknown",
+        });
+      }
+    });
+    socket.on("chat:typing-stop", (conversationId: number) => {
+      if (userId != null) {
+        socket.to(`conversation:${conversationId}`).emit("chat:typing-stop", {
+          conversationId,
+          userId,
+        });
+      }
+    });
     socket.on("call:join", (callId: number) => {
       socket.join(`call:${callId}`);
     });
     socket.on("call:leave", (callId: number) => {
       socket.leave(`call:${callId}`);
     });
-    socket.on("call:offer", (data: { callId: number; offer: object }) => {
-      socket.to(`call:${data.callId}`).emit("call:offer", data);
+    socket.on("call:offer", (data: { callId: number; offer: object; toUserId?: number; toGuestParticipantId?: number }) => {
+      const payload = userId != null ? { ...data, fromUserId: userId } : data;
+      socket.to(`call:${data.callId}`).emit("call:offer", payload);
     });
-    socket.on("call:answer", (data: { callId: number; answer: object }) => {
-      socket.to(`call:${data.callId}`).emit("call:answer", data);
+    socket.on("call:answer", (data: { callId: number; answer: object; toUserId?: number; toGuestParticipantId?: number }) => {
+      const payload = userId != null ? { ...data, fromUserId: userId } : data;
+      socket.to(`call:${data.callId}`).emit("call:answer", payload);
     });
-    socket.on("call:ice", (data: { callId: number; candidate: object }) => {
-      socket.to(`call:${data.callId}`).emit("call:ice", data);
+    socket.on("call:ice", (data: { callId: number; candidate: object; toUserId?: number; toGuestParticipantId?: number }) => {
+      const payload = userId != null ? { ...data, fromUserId: userId } : data;
+      socket.to(`call:${data.callId}`).emit("call:ice", payload);
     });
     socket.on("call:request-offer", (callId: number) => {
-      socket.to(`call:${callId}`).emit("call:request-offer", { callId, fromUserId: userId });
+      const payload = userId != null ? { callId, fromUserId: userId } : { callId };
+      socket.to(`call:${callId}`).emit("call:request-offer", payload);
+    });
+    socket.on("call:participant-joined", (data: { callId: number }) => {
+      const payload = userId != null ? { callId: data.callId, userId } : { callId: data.callId };
+      socket.to(`call:${data.callId}`).emit("call:participant-joined", payload);
     });
 
     socket.on("disconnect", () => {
@@ -206,6 +238,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register collaboration routes (chat, email, calls)
   setupCollaborationRoutes(app, io);
+  setupResponderWorkflowRoutes(app, storage);
 
   // Data Sources API
   app.get("/api/data-sources", async (req, res) => {
@@ -1272,6 +1305,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Platform features for permission management (admin only)
+  app.get("/api/permissions/features", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const currentUser = req.user as SelectUser;
+    if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    res.json({ features: PLATFORM_FEATURES, byCategory: getFeaturesByCategory() });
+  });
+
+  // Editable role permission templates (admin only) – GET all roles' permissions, PUT one role
+  app.get("/api/permissions/roles", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const currentUser = req.user as SelectUser;
+    if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    try {
+      const templates = await getRolePermissionTemplates();
+      res.json(templates);
+    } catch (e) {
+      console.error("GET /api/permissions/roles", e);
+      res.status(500).json({ error: "Failed to load role permissions" });
+    }
+  });
+  app.put("/api/permissions/roles/:role", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const currentUser = req.user as SelectUser;
+    if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    const role = (req.params.role || "").toLowerCase();
+    const allowedRoles = ["admin", "coordinator", "analyst", "field_agent", "user"];
+    if (!allowedRoles.includes(role)) return res.status(400).json({ error: "Invalid role" });
+    const permissions = req.body.permissions;
+    if (!Array.isArray(permissions)) return res.status(400).json({ error: "permissions array required" });
+    const allowedIds = new Set(PLATFORM_FEATURES.map((f) => f.id));
+    const sanitized = permissions.filter((p: string) => p === "*" || allowedIds.has(p));
+    try {
+      await saveRolePermissionTemplate(role, sanitized, currentUser.id);
+      const templates = await getRolePermissionTemplates();
+      res.json(templates);
+    } catch (e) {
+      console.error("PUT /api/permissions/roles/:role", e);
+      res.status(500).json({ error: "Failed to save role permissions" });
+    }
+  });
+
   // Users API (admin only)
   app.get("/api/users", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
@@ -1295,10 +1370,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const currentUser = req.user as SelectUser;
     if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
     const id = parseInt(req.params.id);
-    const { password, ...rest } = req.body;
+    const { password, permissions, ...rest } = req.body;
+    const allowedIds = new Set(PLATFORM_FEATURES.map((f) => f.id));
+    const sanitizedPermissions =
+      Array.isArray(permissions) && permissions.length > 0
+        ? permissions.filter((p: string) => p === "*" || allowedIds.has(p))
+        : undefined;
     const user = await storage.getUser(id);
     if (!user) return res.status(404).json({ error: "User not found" });
-    const updated = await storage.updateUser(id, rest);
+    const updatePayload = { ...rest, ...(sanitizedPermissions !== undefined ? { permissions: sanitizedPermissions } : {}) };
+    const updated = await storage.updateUser(id, updatePayload);
     await auditService.logAudit({
       userId: currentUser.id,
       action: "update",

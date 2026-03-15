@@ -205,9 +205,16 @@ export default function PeaceTrackerInternalDashboard() {
                           <Badge variant="outline">{report.severity}</Badge>
                         </div>
                         <p className="text-sm mb-2 line-clamp-2">{report.description}</p>
-                        <div className="flex justify-between text-sm text-muted-foreground">
+                        <div className="flex justify-between items-center text-sm text-muted-foreground">
                           <span>{report.location}</span>
-                          <span>{formatTimeAgo(report.reportedAt)}</span>
+                          <div className="flex items-center gap-2">
+                            <span>{formatTimeAgo(report.reportedAt)}</span>
+                            <Link href={`/incidents/${report.id}`}>
+                              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={(e) => e.stopPropagation()}>
+                                View / Process
+                              </Button>
+                            </Link>
+                          </div>
                         </div>
                       </div>
                     );
@@ -287,17 +294,24 @@ export default function PeaceTrackerInternalDashboard() {
                         <p className="text-sm text-muted-foreground my-1 line-clamp-2">
                           {report.description}
                         </p>
-                        <div className="flex justify-between text-xs text-muted-foreground">
+                        <div className="flex justify-between items-center text-xs text-muted-foreground">
                           <span>{new Date(report.reportedAt).toLocaleString()}</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-xs flex items-center gap-1 text-primary"
-                            onClick={() => openIncidentDetailModal(report)}
-                          >
-                            View Details
-                            <ExternalLink className="h-3 w-3 ml-1" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-xs flex items-center gap-1 text-primary"
+                              onClick={() => openIncidentDetailModal(report)}
+                            >
+                              View Details
+                              <ExternalLink className="h-3 w-3 ml-1" />
+                            </Button>
+                            <Link href={`/incidents/${report.id}`}>
+                              <Button variant="outline" size="sm" className="h-6 text-xs">
+                                Process
+                              </Button>
+                            </Link>
+                          </div>
                         </div>
                       </div>
                     </div>

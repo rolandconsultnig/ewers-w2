@@ -73,6 +73,8 @@ if (typeof window !== "undefined") {
     if (q.state.status !== "error" || !q.state.error?.message?.includes("401")) return;
     // Skip for the auth user query (it uses returnNull and shouldn't error)
     if (Array.isArray(q.queryKey) && q.queryKey[0] === "/api/user") return;
+    // Skip for permissions endpoints (admin-only); avoid redirect loop
+    if (Array.isArray(q.queryKey) && (q.queryKey[0] === "/api/permissions/features" || q.queryKey[0] === "/api/permissions/roles")) return;
     queryClient.setQueryData(["/api/user"], null);
     if (window.location.pathname !== "/auth") {
       window.location.replace("/auth");

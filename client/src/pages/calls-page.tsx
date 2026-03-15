@@ -67,6 +67,8 @@ export default function CallsPage() {
   const pcMapRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const initiatorPcRef = useRef<RTCPeerConnection | null>(null);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const screenTrackRef = useRef<MediaStreamTrack | null>(null);
 
   const { data: conversations = [] } = useQuery({
     queryKey: ["/api/conversations"],
@@ -135,6 +137,11 @@ export default function CallsPage() {
       setRemoteStreams(new Map());
       initiatorPcRef.current?.close();
       initiatorPcRef.current = null;
+      if (screenTrackRef.current) {
+        screenTrackRef.current.stop();
+        screenTrackRef.current = null;
+      }
+      setIsScreenSharing(false);
       refetchCalls();
     },
   });
@@ -324,6 +331,77 @@ export default function CallsPage() {
     }
   };
 
+  // Pre-fill from query params when coming from chat
+  useEffect(() => {
+    if (typeof window === "undefined" || activeCall) return;
+    const params = new URLSearchParams(window.location.search);
+    const qConvId = params.get("conversationId");
+    const qType = params.get("type");
+    if (qType === "voice" || qType === "video") {
+      setCallType(qType);
+    }
+    if (qConvId) {
+      const idNum = parseInt(qConvId, 10);
+      if (!isNaN(idNum)) setConversationId(idNum);
+    }
+    if (qConvId || qType) {
+      setStartCallOpen(true);
+    }
+  }, [activeCall]);
+
+  const startScreenShare = useCallback(async () => {
+    if (!activeCall) return;
+    try {
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const screenTrack = displayStream.getVideoTracks()[0];
+      if (!screenTrack) return;
+      screenTrackRef.current = screenTrack;
+
+      // Replace outgoing video tracks with screen
+      const replaceTrackOnPc = (pc: RTCPeerConnection) => {
+        pc.getSenders()
+          .filter((s) => s.track && s.track.kind === "video")
+          .forEach((sender) => sender.replaceTrack(screenTrack));
+      };
+      if (initiatorPcRef.current) replaceTrackOnPc(initiatorPcRef.current);
+      pcMapRef.current.forEach((pc) => replaceTrackOnPc(pc));
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = displayStream;
+      }
+
+      setIsScreenSharing(true);
+      screenTrack.onended = () => {
+        // When user stops from browser UI
+        stopScreenShare();
+      };
+    } catch (err: any) {
+      console.error("Screen share failed:", err);
+      toast({ title: "Screen share failed", description: err?.message, variant: "destructive" });
+    }
+  }, [activeCall, toast]);
+
+  const stopScreenShare = useCallback(() => {
+    if (!screenTrackRef.current) return;
+    const originalVideoTrack = localStreamRef.current?.getVideoTracks()[0] || null;
+
+    const replaceTrackOnPc = (pc: RTCPeerConnection) => {
+      pc.getSenders()
+        .filter((s) => s.track && s.track.kind === "video")
+        .forEach((sender) => sender.replaceTrack(originalVideoTrack));
+    };
+    if (initiatorPcRef.current) replaceTrackOnPc(initiatorPcRef.current);
+    pcMapRef.current.forEach((pc) => replaceTrackOnPc(pc));
+
+    screenTrackRef.current.stop();
+    screenTrackRef.current = null;
+    setIsScreenSharing(false);
+
+    if (localVideoRef.current && localStreamRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+    }
+  }, []);
+
   return (
     <MainLayout title="Voice & Video Calls">
       <div className="container mx-auto p-6 max-w-4xl">
@@ -375,17 +453,28 @@ export default function CallsPage() {
                   <span className="text-sm text-muted-foreground">
                     {callStatus === "connecting" && "Connecting..."}
                     {callStatus === "waiting" && "Waiting for others..."}
-                    {callStatus === "connected" && "Connected"}
+                    {callStatus === "connected" && (isScreenSharing ? "Connected (screen sharing)" : "Connected")}
                   </span>
                 </div>
-                <Button
-                  variant="destructive"
-                  onClick={() => endCallMutation.mutate()}
-                  disabled={endCallMutation.isPending}
-                >
-                  {endCallMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PhoneOff className="h-4 w-4" />}
-                  End Call
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {activeCall.type === "video" && (
+                    <Button
+                      variant="outline"
+                      onClick={() => (isScreenSharing ? stopScreenShare() : startScreenShare())}
+                      disabled={endCallMutation.isPending}
+                    >
+                      {isScreenSharing ? "Stop sharing" : "Share screen"}
+                    </Button>
+                  )}
+                  <Button
+                    variant="destructive"
+                    onClick={() => endCallMutation.mutate()}
+                    disabled={endCallMutation.isPending}
+                  >
+                    {endCallMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PhoneOff className="h-4 w-4" />}
+                    End Call
+                  </Button>
+                </div>
               </div>
             ) : (
               <>

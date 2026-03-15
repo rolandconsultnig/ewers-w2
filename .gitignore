@@ -32,3 +32,6 @@ uploads/
 *.db
 PeaceAgent/
 detailedCred.md
+
+# Mobile app (excluded from repo)
+apps/field-agent/

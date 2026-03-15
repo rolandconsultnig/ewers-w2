@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import MainLayout from "@/components/layout/MainLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { CheckCircle2, XCircle, AlertTriangle, MapPin, Calendar, User } from "lucide-react";
+import { CheckCircle2, XCircle, AlertTriangle, MapPin, Calendar, User, ExternalLink } from "lucide-react";
 import type { Incident } from "@shared/schema";
 import {
   Dialog,
@@ -334,7 +335,13 @@ export default function IncidentReviewPage() {
                           </div>
                         </div>
 
-                        <div className="flex gap-2 pt-2">
+                        <div className="flex flex-wrap gap-2 pt-2">
+                          <Link href={`/incidents/${incident.id}`}>
+                            <Button size="sm" variant="secondary">
+                              <ExternalLink className="h-4 w-4 mr-1" />
+                              View / Process
+                            </Button>
+                          </Link>
                           <Button
                             size="sm"
                             onClick={() => handleAccept(incident.id)}

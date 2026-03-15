@@ -16,7 +16,9 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const subdir = file.mimetype.startsWith("image/") ? "images" : "documents";
+    let subdir = "documents";
+    if (file.mimetype.startsWith("image/")) subdir = "images";
+    else if (file.mimetype.startsWith("audio/")) subdir = "audio";
     const dest = path.join(UPLOAD_DIR, subdir);
     if (!fs.existsSync(dest)) {
       fs.mkdirSync(dest, { recursive: true });
@@ -44,7 +46,8 @@ const fileFilter = (
     "text/plain",
     "text/csv",
   ];
-  const allowed = [...allowedImages, ...allowedDocs];
+  const allowedAudio = ["audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav", "audio/x-m4a"];
+  const allowed = [...allowedImages, ...allowedDocs, ...allowedAudio];
 
   if (allowed.includes(file.mimetype)) {
     cb(null, true);

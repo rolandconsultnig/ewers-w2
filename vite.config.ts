@@ -14,10 +14,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Must match API port: npm run dev uses PORT=4343 for the API
     proxy: {
-      "/api": { target: "http://localhost:4342", changeOrigin: true },
-      "/socket.io": { target: "http://localhost:4342", ws: true },
-      "/uploads": { target: "http://localhost:4342", changeOrigin: true },
+      "/api": { target: "http://localhost:4343", changeOrigin: true },
+      "/socket.io": { target: "http://localhost:4343", ws: true },
+      "/uploads": { target: "http://localhost:4343", changeOrigin: true },
     },
     fs: {
       strict: false,

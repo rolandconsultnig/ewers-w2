@@ -83,9 +83,11 @@ import {
   ShieldCheck,
   X as XCircle,
   Loader2,
-  UserPlus
+  UserPlus,
+  Pencil
 } from "lucide-react";
 import { TeamMembersDialog } from "@/components/TeamMembersDialog";
+import { KINETIC_AGENCIES } from "@/lib/kinetic-agencies";
 
 // Create a schema for response plan form
 const responsePlanFormSchema = insertResponsePlanSchema
@@ -121,6 +123,8 @@ export default function ResponsePlansPage() {
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [teamMembersOpen, setTeamMembersOpen] = useState(false);
   const [selectedTeamForMembers, setSelectedTeamForMembers] = useState<{ id: number; name: string } | null>(null);
+  const [teamDialogOpen, setTeamDialogOpen] = useState(false);
+  const [editingTeam, setEditingTeam] = useState<ResponseTeam | null>(null);
   
   // Fetch response plans
   const { 
@@ -245,6 +249,100 @@ export default function ResponsePlansPage() {
       });
     },
   });
+
+  // Response team form schema (create/edit)
+  const responseTeamFormSchema = z.object({
+    name: z.string().min(1, "Name is required"),
+    type: z.string().min(1, "Type is required"),
+    responseCategory: z.enum(["kinetic", "non_kinetic"]).optional().nullable(),
+    agency: z.string().optional().nullable(),
+    status: z.enum(["active", "inactive"]).default("active"),
+    region: z.string().min(1, "Region is required"),
+    location: z.string().min(1, "Location is required"),
+  });
+  type ResponseTeamFormValues = z.infer<typeof responseTeamFormSchema>;
+  const teamForm = useForm<ResponseTeamFormValues>({
+    resolver: zodResolver(responseTeamFormSchema),
+    defaultValues: {
+      name: "",
+      type: "security",
+      responseCategory: "kinetic",
+      agency: null,
+      status: "active",
+      region: "Nigeria",
+      location: "",
+    },
+  });
+  const createTeamMutation = useMutation({
+    mutationFn: async (data: ResponseTeamFormValues) => {
+      const res = await apiRequest("POST", "/api/response-teams", {
+        name: data.name,
+        type: data.type,
+        responseCategory: data.responseCategory ?? undefined,
+        agency: data.agency ?? undefined,
+        status: data.status,
+        region: data.region,
+        location: data.location,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/response-teams"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/responders/teams"] });
+      toast({ title: "Team created" });
+      setTeamDialogOpen(false);
+      teamForm.reset();
+      setEditingTeam(null);
+    },
+    onError: (err: Error) => toast({ title: "Failed to create team", description: err.message, variant: "destructive" }),
+  });
+  const updateTeamMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: ResponseTeamFormValues }) => {
+      const res = await apiRequest("PUT", `/api/response-teams/${id}`, {
+        name: data.name,
+        type: data.type,
+        responseCategory: data.responseCategory ?? undefined,
+        agency: data.agency ?? undefined,
+        status: data.status,
+        region: data.region,
+        location: data.location,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/response-teams"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/responders/teams"] });
+      toast({ title: "Team updated" });
+      setTeamDialogOpen(false);
+      setEditingTeam(null);
+    },
+    onError: (err: Error) => toast({ title: "Failed to update team", description: err.message, variant: "destructive" }),
+  });
+  const openTeamDialog = (team?: ResponseTeam | null) => {
+    setEditingTeam(team ?? null);
+    if (team) {
+      teamForm.reset({
+        name: team.name,
+        type: team.type,
+        responseCategory: (team as { responseCategory?: string }).responseCategory ?? "kinetic",
+        agency: (team as { agency?: string | null }).agency ?? null,
+        status: team.status === "active" ? "active" : "inactive",
+        region: team.region ?? "Nigeria",
+        location: team.location ?? "",
+      });
+    } else {
+      teamForm.reset({
+        name: "",
+        type: "security",
+        responseCategory: "kinetic",
+        agency: null,
+        status: "active",
+        region: "Nigeria",
+        location: "",
+      });
+    }
+    setTeamDialogOpen(true);
+  };
   
   // Handle form submission
   function onSubmit(data: ResponsePlanFormValues) {
@@ -587,28 +685,47 @@ export default function ResponsePlansPage() {
           <Card>
             <CardHeader>
               <CardTitle>Response Teams</CardTitle>
-              <CardDescription>Manage team members</CardDescription>
+              <CardDescription>Manage teams and members. Set agency for kinetic dashboards (/responder/agency/...).</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
+                <Button size="sm" variant="outline" className="mb-2" onClick={() => openTeamDialog(null)}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add team
+                </Button>
                 {teams?.map((team) => (
                   <div key={team.id} className="flex items-center justify-between p-2 rounded border">
-                    <span className="text-sm font-medium">{team.name}</span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setSelectedTeamForMembers({ id: team.id, name: team.name });
-                        setTeamMembersOpen(true);
-                      }}
-                    >
-                      <UserPlus className="h-4 w-4 mr-1" />
-                      Members
-                    </Button>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium">{team.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {(team as { responseCategory?: string }).responseCategory ?? "—"} · {(team as { agency?: string }).agency ?? "other"}
+                      </span>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => openTeamDialog(team)}
+                        title="Edit team"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSelectedTeamForMembers({ id: team.id, name: team.name });
+                          setTeamMembersOpen(true);
+                        }}
+                      >
+                        <UserPlus className="h-4 w-4 mr-1" />
+                        Members
+                      </Button>
+                    </div>
                   </div>
                 ))}
                 {(!teams || teams.length === 0) && (
-                  <p className="text-sm text-muted-foreground">No response teams</p>
+                  <p className="text-sm text-muted-foreground">No response teams. Add a team to get started.</p>
                 )}
               </div>
             </CardContent>
@@ -625,6 +742,148 @@ export default function ResponsePlansPage() {
           if (!open) setSelectedTeamForMembers(null);
         }}
       />
+
+      {/* Create / Edit Response Team Dialog */}
+      <Dialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>{editingTeam ? "Edit response team" : "Add response team"}</DialogTitle>
+            <DialogDescription>
+              Set name, type, category, and agency. Agency links this team to a private dashboard (e.g. Police, Army).
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...teamForm}>
+            <form
+              onSubmit={teamForm.handleSubmit((data) => {
+                if (editingTeam) updateTeamMutation.mutate({ id: editingTeam.id, data });
+                else createTeamMutation.mutate(data);
+              })}
+              className="space-y-4"
+            >
+              <FormField
+                control={teamForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl><Input placeholder="e.g. Lagos Police Unit" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={teamForm.control}
+                name="type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Type</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="security">Security</SelectItem>
+                        <SelectItem value="medical">Medical</SelectItem>
+                        <SelectItem value="logistics">Logistics</SelectItem>
+                        <SelectItem value="assessment">Assessment</SelectItem>
+                        <SelectItem value="mediation">Mediation</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={teamForm.control}
+                name="responseCategory"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Category</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value ?? undefined}>
+                      <FormControl>
+                        <SelectTrigger><SelectValue placeholder="Kinetic / Non-kinetic" /></SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="kinetic">Kinetic</SelectItem>
+                        <SelectItem value="non_kinetic">Non-kinetic</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={teamForm.control}
+                name="agency"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Agency (for kinetic dashboards)</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value ?? "other"}>
+                      <FormControl>
+                        <SelectTrigger><SelectValue placeholder="Select agency" /></SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {KINETIC_AGENCIES.map((a) => (
+                          <SelectItem key={a.slug} value={a.slug}>{a.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>Used for /responder/agency/:slug private dashboard.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={teamForm.control}
+                name="status"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Status</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="inactive">Inactive</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={teamForm.control}
+                name="region"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Region</FormLabel>
+                    <FormControl><Input placeholder="e.g. Nigeria" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={teamForm.control}
+                name="location"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Location</FormLabel>
+                    <FormControl><Input placeholder="e.g. Lagos" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setTeamDialogOpen(false)}>Cancel</Button>
+                <Button type="submit" disabled={createTeamMutation.isPending || updateTeamMutation.isPending}>
+                  {editingTeam ? "Update" : "Create"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
       
       {/* Create Plan Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>

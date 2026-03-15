@@ -6,6 +6,7 @@ import { Router } from "express";
 import type { Server as SocketIOServer } from "socket.io";
 import { storage } from "../storage";
 import type { User as SelectUser } from "@shared/schema";
+import { singleUpload } from "../services/file-upload";
 
 export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
   // --- CONVERSATIONS (Chat & Email) ---
@@ -35,13 +36,30 @@ export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
     }
   });
 
+  /**
+   * Create a conversation.
+   * - type "chat": any authenticated user can create (1:1 or small group)
+   * - type "group": only admins or high-clearance users can create formal groups
+   */
   app.post("/api/conversations", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const user = req.user as SelectUser;
-    const { type = "chat", title, incidentId, participantIds } = req.body;
+    const { type = "chat", title, incidentId, participantIds } = req.body as {
+      type?: string;
+      title?: string;
+      incidentId?: number | null;
+      participantIds?: number[];
+    };
+
+    const isGroup = type === "group";
+    const isAdminOrSupervisor = user.role === "admin" || user.securityLevel >= 5;
+    if (isGroup && !isAdminOrSupervisor) {
+      return res.status(403).json({ error: "Only administrators can create groups" });
+    }
+
     try {
       const convo = await storage.createConversation({
-        type: type || "chat",
+        type: isGroup ? "group" : "chat",
         title: title || null,
         incidentId: incidentId || null,
         createdBy: user.id,
@@ -160,15 +178,69 @@ export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
     }
   });
 
+  // Attachments: upload a file and create a message that references it
+  app.post("/api/conversations/:id/attachments", singleUpload, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const user = req.user as SelectUser;
+    const id = parseInt(req.params.id);
+
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) return res.status(400).json({ error: "file is required" });
+
+    try {
+      const subdir = file.mimetype.startsWith("image/") ? "images" : file.mimetype.startsWith("audio/") ? "audio" : "documents";
+      const url = `/uploads/${subdir}/${file.filename}`;
+      const originalName = file.originalname;
+      const durationSec = typeof (req as any).body?.duration === "string" ? (req as any).body.duration : undefined;
+
+      // Encode attachment info so the client can render it (voice note vs file)
+      const body = file.mimetype.startsWith("audio/")
+        ? `__VOICE__::${url}::${originalName}::${durationSec ?? ""}`
+        : `__FILE__::${url}::${originalName}`;
+
+      const msg = await storage.createMessage({
+        conversationId: id,
+        senderId: user.id,
+        body,
+      });
+      const sender = await storage.getUser(user.id);
+      const payload = {
+        ...msg,
+        sender: sender ? { id: sender.id, username: sender.username, fullName: sender.fullName } : null,
+      };
+
+      if (io) io.to(`conversation:${id}`).emit("new-message", payload);
+      res.status(201).json(payload);
+    } catch (e) {
+      console.error("Error uploading attachment:", e);
+      res.status(500).json({ error: "Failed to upload attachment" });
+    }
+  });
+
   // --- CALL SESSIONS ---
 
   app.get("/api/calls", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
-      // Return active calls - for now we don't have a list endpoint, so return empty
-      res.json([]);
+      const calls = await storage.getActiveCallSessions();
+      res.json(calls);
     } catch (e) {
+      console.error("Error fetching calls:", e);
       res.status(500).json({ error: "Failed to fetch calls" });
+    }
+  });
+
+  app.get("/api/calls/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid call ID" });
+    try {
+      const call = await storage.getCallSession(id);
+      if (!call) return res.status(404).json({ error: "Call not found" });
+      res.json(call);
+    } catch (e) {
+      console.error("Error fetching call:", e);
+      res.status(500).json({ error: "Failed to fetch call" });
     }
   });
 
@@ -198,7 +270,10 @@ export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
   app.post("/api/calls/:id/end", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid call ID" });
     try {
+      const existing = await storage.getCallSession(id);
+      if (!existing) return res.status(404).json({ error: "Call not found" });
       const call = await storage.endCallSession(id);
       res.json(call);
     } catch (e) {
@@ -211,12 +286,16 @@ export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const user = req.user as SelectUser;
     const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid call ID" });
     try {
-      const p = await storage.addCallParticipant({
+      const call = await storage.getCallSession(id);
+      if (!call) return res.status(404).json({ error: "Call not found" });
+      if (call.status !== "active") return res.status(400).json({ error: "Call has ended" });
+      await storage.addCallParticipant({
         callSessionId: id,
         userId: user.id,
       });
-      res.status(201).json(p);
+      res.status(201).json({ id: call.id, type: call.type, status: call.status });
     } catch (e) {
       console.error("Error joining call:", e);
       res.status(500).json({ error: "Failed to join call" });
@@ -227,6 +306,7 @@ export function setupCollaborationRoutes(app: Router, io?: SocketIOServer) {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const user = req.user as SelectUser;
     const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid call ID" });
     try {
       const p = await storage.leaveCallParticipant(id, user.id);
       res.json(p || {});

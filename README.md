@@ -41,6 +41,8 @@ SESSION_SECRET=your_session_secret
 NODE_ENV=development
 ```
 
+In development, the app uses an **in-memory session store** by default (no Postgres session table required). To use Postgres for sessions in dev, set `USE_PG_SESSION=1`.
+
 4. Start the development server
 ```bash
 npm run dev
@@ -99,6 +101,21 @@ For each social media platform, obtain API keys and configure them as environmen
 
 Configure Twilio with these environment variables:
 - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`
+
+## Database Migrations
+
+When `DATABASE_URL` is set, you can run the responder workflow migrations (schema + backfill):
+
+```bash
+# Run schema migration (incident_discussions, routing columns, response_teams.response_category, etc.)
+npm run db:migrate:responder-schema
+
+# Backfill response_teams.response_category and incidents.processing_status for existing rows
+npm run db:migrate:responder-backfill
+
+# Or run both in order
+npm run db:migrate:responder
+```
 
 ## Project Structure
 

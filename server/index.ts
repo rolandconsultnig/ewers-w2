@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
@@ -31,6 +32,29 @@ app.use("/api/auth/login", authLimiter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// CORS - tighten to known web origins, but allow native/mobile (no Origin header)
+const allowedOrigins =
+  (process.env.CORS_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) {
+        // Native apps / curl etc. (no Origin header)
+        return callback(null, true);
+      }
+      if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  })
+);
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -56,11 +80,10 @@ app.use((req, res, next) => {
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    if (res.headersSent) return;
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
-
-    res.status(status).json({ message });
-    throw err;
+    res.status(status).json({ error: message });
   });
 
   // In development: use Vite middleware only when NOT using separate Vite dev server
@@ -70,8 +93,9 @@ app.use((req, res, next) => {
   } else if (app.get("env") !== "development") {
     serveStatic(app);
   } else if (process.env.USE_VITE_DEV_SERVER) {
-    app.get("*", (_req, res) => {
-      res.redirect(301, "http://localhost:5173");
+    app.get("*", (req, res) => {
+      const target = `http://localhost:5173${req.originalUrl || req.path}`;
+      res.redirect(301, target);
     });
   }
 

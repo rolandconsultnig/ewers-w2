@@ -140,23 +140,26 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   }, [socket]);
 
   useEffect(() => {
-    const socketUrl = window.location.origin;
+    // In dev, Vite proxies /socket.io to the API server; use same origin so proxy is used
+    const socketUrl =
+      typeof import.meta !== "undefined" && import.meta.env?.VITE_API_ORIGIN
+        ? (import.meta.env.VITE_API_ORIGIN as string)
+        : window.location.origin;
     const s = io(socketUrl, {
       path: "/socket.io",
       auth: user
         ? { userId: user.id, username: user.username }
         : {},
-      transports: ["websocket", "polling"],
-      reconnectionAttempts: 3,
+      transports: ["polling", "websocket"],
+      reconnectionAttempts: 5,
       reconnectionDelay: 2000,
-      timeout: 10000,
+      reconnectionDelayMax: 8000,
+      timeout: 15000,
     });
 
     s.on("connect", () => setIsConnected(true));
     s.on("disconnect", () => setIsConnected(false));
-    s.on("connect_error", () => {
-      setIsConnected(false);
-    });
+    s.on("connect_error", () => setIsConnected(false));
     s.on("alerts", (data) => setLastMessage({ type: "alerts", data }));
     s.on("new-alert", (data) => setLastMessage({ type: "new-alert", data }));
     s.on("updated-alert", (data) => setLastMessage({ type: "updated-alert", data }));

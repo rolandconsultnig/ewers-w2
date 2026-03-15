@@ -97,7 +97,12 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
-  app.use("*", (_req, res) => {
-    res.sendFile(path.join(distPath, "index.html"));
+  // SPA fallback: serve index.html for any non-file route (e.g. /responder, /incidents/1)
+  const indexHtml = path.join(distPath, "index.html");
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api") || req.path.startsWith("/socket.io") || req.path.startsWith("/uploads")) return next();
+    res.sendFile(indexHtml, (err) => {
+      if (err) next(err);
+    });
   });
 }

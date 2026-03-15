@@ -180,6 +180,14 @@ export const incidents = pgTable("incidents", {
   audioTranscription: text("audio_transcription"), // Transcribed text from audio
   reportingMethod: text("reporting_method").default("text"), // text, voice, sms, web_form
   transcriptionConfidence: integer("transcription_confidence"), // 0-100 scale
+  // Responder workflow: processing pipeline and routing
+  processingStatus: text("processing_status").default("draft"), // draft, under_analysis, analysis_complete, supervisor_review, coordinator_review, dispatched
+  proposedResponderType: text("proposed_responder_type"), // kinetic, non_kinetic, mixed
+  finalResponderType: text("final_responder_type"), // kinetic, non_kinetic, mixed
+  assignedResponderTeamId: integer("assigned_responder_team_id").references(() => responseTeams.id),
+  supervisorId: integer("supervisor_id").references(() => users.id),
+  coordinatorId: integer("coordinator_id").references(() => users.id),
+  routedAt: timestamp("routed_at"),
 });
 
 export const insertIncidentSchema = createInsertSchema(incidents).pick({
@@ -205,6 +213,26 @@ export const insertIncidentSchema = createInsertSchema(incidents).pick({
   reportingMethod: true,
   transcriptionConfidence: true,
 });
+
+// Incident discussion thread (analyst, supervisor, coordinator, responder comments)
+export const incidentDiscussions = pgTable("incident_discussions", {
+  id: serial("id").notNull().primaryKey(),
+  incidentId: integer("incident_id").references(() => incidents.id).notNull(),
+  authorId: integer("author_id").references(() => users.id).notNull(),
+  role: text("role").notNull(), // analyst, supervisor, coordinator, responder
+  comment: text("comment").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertIncidentDiscussionSchema = createInsertSchema(incidentDiscussions).pick({
+  incidentId: true,
+  authorId: true,
+  role: true,
+  comment: true,
+});
+
+export type InsertIncidentDiscussion = z.infer<typeof insertIncidentDiscussionSchema>;
+export type IncidentDiscussion = typeof incidentDiscussions.$inferSelect;
 
 // Case Management - Cases
 export const cases = pgTable("cases", {
@@ -319,6 +347,8 @@ export const responseActivities = pgTable("response_activities", {
   description: text("description").notNull(),
   status: text("status").notNull().default("pending"), // pending, in_progress, completed, cancelled
   assignedTo: integer("assigned_to"),
+  assignedTeamId: integer("assigned_team_id").references(() => responseTeams.id),
+  responseType: text("response_type"), // kinetic, non_kinetic — matches responder portal tabs
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
@@ -331,6 +361,8 @@ export const insertResponseActivitySchema = createInsertSchema(responseActivitie
   description: true,
   status: true,
   assignedTo: true,
+  assignedTeamId: true,
+  responseType: true,
   startedAt: true,
   completedAt: true,
   alertId: true,
@@ -342,6 +374,8 @@ export const responseTeams = pgTable("response_teams", {
   id: serial("id").notNull().primaryKey(),
   name: text("name").notNull(),
   type: text("type").notNull(), // medical, security, logistics, assessment, mediation
+  responseCategory: text("response_category"), // kinetic, non_kinetic — for responder portal filtering
+  agency: text("agency"), // police, army, dss, immigration, customs, nia, navy, air_force, other — for agency-specific dashboards
   status: text("status").notNull().default("active"),
   members: jsonb("members"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -355,6 +389,8 @@ export const responseTeams = pgTable("response_teams", {
 export const insertResponseTeamSchema = createInsertSchema(responseTeams).pick({
   name: true,
   type: true,
+  responseCategory: true,
+  agency: true,
   status: true,
   members: true,
   region: true,
@@ -846,6 +882,11 @@ export const messages = pgTable("messages", {
   conversationId: integer("conversation_id").references(() => conversations.id).notNull(),
   senderId: integer("sender_id").references(() => users.id).notNull(),
   body: text("body").notNull(),
+  // Optional fields to support end-to-end encryption without breaking existing chats
+  ciphertext: text("ciphertext"),
+  nonce: text("nonce"),
+  algorithm: text("algorithm"),
+  senderDeviceId: text("sender_device_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   editedAt: timestamp("edited_at"),
   deletedAt: timestamp("deleted_at"),
@@ -855,10 +896,36 @@ export const insertMessageSchema = createInsertSchema(messages).pick({
   conversationId: true,
   senderId: true,
   body: true,
+  ciphertext: true,
+  nonce: true,
+  algorithm: true,
+  senderDeviceId: true,
 });
 
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type Message = typeof messages.$inferSelect;
+
+// Per-conversation keys (encrypted per user/device) for future E2EE rollout
+export const conversationKeys = pgTable("conversation_keys", {
+  id: serial("id").notNull().primaryKey(),
+  conversationId: integer("conversation_id").references(() => conversations.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  encryptedKey: text("encrypted_key").notNull(),
+  algorithm: text("algorithm").notNull().default("xchacha20-poly1305"),
+  deviceId: text("device_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertConversationKeySchema = createInsertSchema(conversationKeys).pick({
+  conversationId: true,
+  userId: true,
+  encryptedKey: true,
+  algorithm: true,
+  deviceId: true,
+});
+
+export type InsertConversationKey = z.infer<typeof insertConversationKeySchema>;
+export type ConversationKey = typeof conversationKeys.$inferSelect;
 
 export const messageAttachments = pgTable("message_attachments", {
   id: serial("id").notNull().primaryKey(),

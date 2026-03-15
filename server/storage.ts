@@ -1,4 +1,4 @@
-import { users, dataSources, collectedData, processedData, incidents, alerts, responseActivities, responseTeams, riskIndicators, riskAnalyses, responsePlans, feedbacks, reports, settings, accessLogs, apiKeys, webhooks, cases, caseNotes, conversations, conversationParticipants, messages, messageAttachments, callSessions, callParticipants } from "@shared/schema";
+import { users, dataSources, collectedData, processedData, incidents, alerts, responseActivities, responseTeams, riskIndicators, riskAnalyses, responsePlans, feedbacks, reports, settings, accessLogs, apiKeys, webhooks, cases, caseNotes, incidentDiscussions, conversations, conversationParticipants, messages, messageAttachments, callSessions, callParticipants, conversationKeys } from "@shared/schema";
 import type { 
   User, InsertUser, 
   DataSource, InsertDataSource, 
@@ -7,6 +7,7 @@ import type {
   Incident, InsertIncident, 
   Case, InsertCase,
   CaseNote, InsertCaseNote,
+  IncidentDiscussion, InsertIncidentDiscussion,
   Alert, InsertAlert, 
   ResponseActivity, InsertResponseActivity, 
   ResponseTeam, InsertResponseTeam, 
@@ -24,11 +25,12 @@ import type {
   Message, InsertMessage,
   MessageAttachment, InsertMessageAttachment,
   CallSession, InsertCallSession,
-  CallParticipant, InsertCallParticipant
+  CallParticipant, InsertCallParticipant,
+  ConversationKey, InsertConversationKey
 } from "@shared/schema";
 import session from "express-session";
 import { db, pool } from "./db";
-import { eq, and, desc, gte, lte } from "drizzle-orm";
+import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 import connectPg from "connect-pg-simple";
 
 const PostgresSessionStore = connectPg(session);
@@ -84,9 +86,18 @@ export interface IStorage {
   
   // Response team methods
   getResponseTeams(): Promise<ResponseTeam[]>;
+  getResponseTeamsByCategory(category: "kinetic" | "non_kinetic" | null): Promise<ResponseTeam[]>;
   getResponseTeam(id: number): Promise<ResponseTeam | undefined>;
   createResponseTeam(team: InsertResponseTeam): Promise<ResponseTeam>;
   updateResponseTeam(id: number, team: Partial<ResponseTeam>): Promise<ResponseTeam>;
+
+  // Incident discussion (responder workflow)
+  getIncidentDiscussions(incidentId: number): Promise<IncidentDiscussion[]>;
+  createIncidentDiscussion(data: InsertIncidentDiscussion): Promise<IncidentDiscussion>;
+
+  // Responder assignments (activities with optional filters)
+  getResponseActivitiesFiltered(filters: { assignedTeamId?: number; incidentId?: number; responseType?: string }): Promise<ResponseActivity[]>;
+  getIncidentsByProcessingStatus(status: string): Promise<Incident[]>;
   
   // Risk indicator methods
   getRiskIndicators(): Promise<RiskIndicator[]>;
@@ -177,6 +188,13 @@ export interface IStorage {
   getMessageAttachments(messageId: number): Promise<MessageAttachment[]>;
   createMessageAttachment(attachment: InsertMessageAttachment): Promise<MessageAttachment>;
 
+  // Conversation keys (for future end-to-end encryption support)
+  getConversationKeys(conversationId: number): Promise<ConversationKey[]>;
+  getConversationKeyForUser(conversationId: number, userId: number): Promise<ConversationKey | undefined>;
+  createConversationKey(key: InsertConversationKey): Promise<ConversationKey>;
+
+  getCallSession(id: number): Promise<CallSession | undefined>;
+  getActiveCallSessions(): Promise<CallSession[]>;
   createCallSession(call: InsertCallSession): Promise<CallSession>;
   endCallSession(callSessionId: number): Promise<CallSession>;
   addCallParticipant(participant: InsertCallParticipant): Promise<CallParticipant>;
@@ -281,6 +299,40 @@ export class DatabaseStorage implements IStorage {
   async createMessageAttachment(attachment: InsertMessageAttachment): Promise<MessageAttachment> {
     const [row] = await db.insert(messageAttachments).values(attachment as any).returning();
     return row;
+  }
+
+  async getConversationKeys(conversationId: number): Promise<ConversationKey[]> {
+    return db
+      .select()
+      .from(conversationKeys)
+      .where(eq(conversationKeys.conversationId, conversationId))
+      .orderBy(desc(conversationKeys.createdAt));
+  }
+
+  async getConversationKeyForUser(conversationId: number, userId: number): Promise<ConversationKey | undefined> {
+    const [row] = await db
+      .select()
+      .from(conversationKeys)
+      .where(and(eq(conversationKeys.conversationId, conversationId), eq(conversationKeys.userId, userId)));
+    return row;
+  }
+
+  async createConversationKey(key: InsertConversationKey): Promise<ConversationKey> {
+    const [row] = await db.insert(conversationKeys).values(key as any).returning();
+    return row;
+  }
+
+  async getCallSession(id: number): Promise<CallSession | undefined> {
+    const [row] = await db.select().from(callSessions).where(eq(callSessions.id, id));
+    return row;
+  }
+
+  async getActiveCallSessions(): Promise<CallSession[]> {
+    return db
+      .select()
+      .from(callSessions)
+      .where(eq(callSessions.status, "active"))
+      .orderBy(desc(callSessions.startedAt));
   }
 
   async createCallSession(call: InsertCallSession): Promise<CallSession> {
@@ -596,6 +648,36 @@ export class DatabaseStorage implements IStorage {
   async getResponseTeam(id: number): Promise<ResponseTeam | undefined> {
     const [team] = await db.select().from(responseTeams).where(eq(responseTeams.id, id));
     return team;
+  }
+
+  async getResponseTeamsByCategory(category: "kinetic" | "non_kinetic" | null): Promise<ResponseTeam[]> {
+    if (category == null) return db.select().from(responseTeams);
+    return db.select().from(responseTeams).where(eq(responseTeams.responseCategory, category));
+  }
+
+  async getIncidentDiscussions(incidentId: number): Promise<IncidentDiscussion[]> {
+    return db.select().from(incidentDiscussions).where(eq(incidentDiscussions.incidentId, incidentId)).orderBy(desc(incidentDiscussions.createdAt));
+  }
+
+  async createIncidentDiscussion(data: InsertIncidentDiscussion): Promise<IncidentDiscussion> {
+    const [row] = await db.insert(incidentDiscussions).values(data).returning();
+    if (!row) throw new Error("Failed to create incident discussion");
+    return row;
+  }
+
+  async getResponseActivitiesFiltered(filters: { assignedTeamId?: number; incidentId?: number; responseType?: string }): Promise<ResponseActivity[]> {
+    const conditions = [];
+    if (filters.assignedTeamId != null) conditions.push(eq(responseActivities.assignedTeamId, filters.assignedTeamId));
+    if (filters.incidentId != null) conditions.push(eq(responseActivities.incidentId, filters.incidentId));
+    if (filters.responseType != null) conditions.push(eq(responseActivities.responseType, filters.responseType));
+    if (conditions.length > 0) {
+      return db.select().from(responseActivities).where(and(...conditions)).orderBy(desc(responseActivities.createdAt));
+    }
+    return db.select().from(responseActivities).orderBy(desc(responseActivities.createdAt));
+  }
+
+  async getIncidentsByProcessingStatus(status: string): Promise<Incident[]> {
+    return db.select().from(incidents).where(eq(incidents.processingStatus, status)).orderBy(desc(incidents.routedAt));
   }
 
   async createResponseTeam(team: InsertResponseTeam): Promise<ResponseTeam> {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import MainLayout from "@/components/layout/MainLayout";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useSocket } from "@/contexts/SocketContext";
@@ -28,7 +29,24 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MessageCircle, Plus, Send, Loader2, Search, MoreVertical, Pencil, Trash2, Users, Circle } from "lucide-react";
+import {
+  MessageCircle,
+  Plus,
+  Send,
+  Loader2,
+  Search,
+  MoreVertical,
+  Pencil,
+  Trash2,
+  Users,
+  Circle,
+  Check,
+  CheckCheck,
+  Paperclip,
+  Smile,
+  Mic,
+  MapPin,
+} from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 
@@ -56,6 +74,7 @@ const TYPING_TIMEOUT_MS = 3000;
 
 export default function ChatPage() {
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const {
     joinConversation,
@@ -79,9 +98,16 @@ export default function ChatPage() {
   const [typingUsers, setTypingUsers] = useState<Map<number, { userId: number; username: string }>>(new Map());
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
   const [editBody, setEditBody] = useState("");
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [newIsGroup, setNewIsGroup] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingSentRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const { data: conversations = [], refetch: refetchConvos } = useQuery<Conversation[]>({
     queryKey: ["/api/conversations"],
@@ -138,7 +164,7 @@ export default function ChatPage() {
   const createMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/conversations", {
-        type: "chat",
+        type: newIsGroup && isAdminUser ? "group" : "chat",
         title: newTitle || "New Chat",
         participantIds: newParticipantIds,
       });
@@ -148,6 +174,7 @@ export default function ChatPage() {
       setCreateOpen(false);
       setNewTitle("");
       setNewParticipantIds([]);
+      setNewIsGroup(false);
       refetchConvos();
     },
   });
@@ -273,13 +300,14 @@ export default function ChatPage() {
   }, [selectedConvo, emitTypingStart, emitTypingStop]);
 
   const chatConvos = conversations.filter((c) => c.type === "chat");
+  const groupConvos = conversations.filter((c) => c.type === "group");
   const filteredConvos = searchQuery.trim()
-    ? chatConvos.filter(
+    ? conversations.filter(
         (c) =>
           (c.title || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
           (c.lastMessage?.body || "").toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : chatConvos;
+    : conversations;
 
   const participantIds = (participants as { userId: number }[]).map((p) => p.userId);
   const usersToAdd = (users as { id: number; fullName?: string; username?: string }[]).filter(
@@ -290,67 +318,232 @@ export default function ChatPage() {
     (u) => u.id !== user?.id
   );
   const onlineUserIds = new Set(onlineUsers.map((o) => o.userId));
+  const isAdminUser = !!user && (user.role === "admin" || (user as any).securityLevel >= 5);
+
+  // Compute WhatsApp-style message status for the current user
+  const computeMessageStatus = (m: Message) => {
+    if (!user || !selectedConvo) return null;
+    if (m.senderId !== user.id) return null;
+
+    // Delivered: we assume server accepted, so at least single check
+    // Read: any other participant has lastReadAt after message createdAt
+    const others = (participants as { userId: number; lastReadAt?: string | null }[]).filter(
+      (p) => p.userId !== user.id
+    );
+    if (others.length === 0) {
+      return "sent";
+    }
+    const createdAt = new Date(m.createdAt).getTime();
+    const anyRead = others.some((p) => {
+      if (!p.lastReadAt) return false;
+      return new Date(p.lastReadAt as any).getTime() >= createdAt;
+    });
+    return anyRead ? "read" : "delivered";
+  };
 
   const handleStartChatWithUser = (targetUser: { id: number; fullName?: string; username?: string }) => {
     setNewParticipantIds([targetUser.id]);
     setNewTitle(targetUser.fullName || targetUser.username || "");
+    setNewIsGroup(false);
     setCreateOpen(true);
   };
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedConvo) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsUploading(true);
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`/api/conversations/${selectedConvo.id}/attachments`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Failed to upload attachment");
+      }
+      await res.json();
+      queryClient.invalidateQueries({ queryKey: [`/api/conversations/${selectedConvo.id}/messages`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+    } catch (error: any) {
+      toast({
+        title: "Upload failed",
+        description: error?.message || "Could not upload file",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleVoiceNote = useCallback(async () => {
+    if (!selectedConvo) return;
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        if (blob.size === 0) return;
+        setIsUploading(true);
+        try {
+          const file = new File([blob], "voice.webm", { type: "audio/webm" });
+          const formData = new FormData();
+          formData.append("file", file);
+          const res = await fetch(`/api/conversations/${selectedConvo.id}/attachments`, {
+            method: "POST",
+            body: formData,
+            credentials: "include",
+          });
+          if (!res.ok) throw new Error("Upload failed");
+          queryClient.invalidateQueries({ queryKey: [`/api/conversations/${selectedConvo.id}/messages`] });
+          queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+        } catch (err: any) {
+          toast({ title: "Voice note failed", description: err?.message, variant: "destructive" });
+        } finally {
+          setIsUploading(false);
+        }
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecording(true);
+    } catch (err: any) {
+      toast({ title: "Microphone access needed", description: err?.message, variant: "destructive" });
+    }
+  }, [selectedConvo, isRecording, queryClient, toast]);
+
+  useEffect(() => {
+    if (!isRecording) return;
+    const rec = mediaRecorderRef.current;
+    return () => {
+      if (rec?.state === "recording") rec.stop();
+    };
+  }, [isRecording]);
+
+  const handleShareLocation = useCallback(() => {
+    if (!selectedConvo) return;
+    if (!navigator.geolocation) {
+      toast({ title: "Location not supported", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Getting location..." });
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const body = `__LOCATION__::${latitude}::${longitude}`;
+        try {
+          await apiRequest("POST", `/api/conversations/${selectedConvo.id}/messages`, { body });
+          queryClient.invalidateQueries({ queryKey: [`/api/conversations/${selectedConvo.id}/messages`] });
+          queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+          toast({ title: "Location shared" });
+        } catch (e: any) {
+          toast({ title: "Failed to share location", description: e?.message, variant: "destructive" });
+        }
+      },
+      () => toast({ title: "Could not get location", variant: "destructive" }),
+      { enableHighAccuracy: true }
+    );
+  }, [selectedConvo, queryClient, toast]);
+
   return (
     <MainLayout title="Chat">
-      <div className="flex h-[calc(100vh-8rem)]">
-        <div className="w-80 border-r flex flex-col bg-muted/20">
-          <div className="p-3 border-b flex flex-col gap-2">
-            <div className="flex justify-between items-center">
-              <h2 className="font-semibold">Conversations</h2>
-              <Button size="icon" variant="ghost" onClick={() => setCreateOpen(true)} title="New chat">
+      {/* WhatsApp Web–style full height dark layout */}
+      <div className="flex h-[calc(100vh-8rem)] bg-[#0a1014]">
+        {/* Left: chat list pane */}
+        <div className="w-80 border-r border-[#202c33] flex flex-col bg-[#111b21] text-slate-100">
+          {/* List header */}
+          <div className="px-3 py-2 border-b border-[#202c33] flex items-center justify-between bg-[#202c33]">
+            <div className="flex items-center gap-2">
+              <Avatar className="h-8 w-8">
+                <AvatarFallback className="bg-emerald-600 text-xs text-white">
+                  {user?.fullName?.charAt(0) || user?.username?.charAt(0) || "U"}
+                </AvatarFallback>
+              </Avatar>
+              <span className="font-semibold text-sm">Chats</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-300">
+              <Button size="icon" variant="ghost" className="h-8 w-8 hover:bg-[#2a3942]" onClick={() => setCreateOpen(true)}>
                 <Plus className="h-4 w-4" />
               </Button>
             </div>
+          </div>
+
+          {/* Search bar */}
+          <div className="px-3 py-2 border-b border-[#202c33] bg-[#111b21]">
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="font-semibold flex items-center gap-1 text-xs uppercase tracking-wide text-slate-400">
+                <MessageCircle className="h-3 w-3" />
+                Conversations
+              </h2>
+              {isAdminUser && (
+                <span className="text-[10px] text-emerald-400 font-medium">Admin</span>
+              )}
+            </div>
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
               <Input
                 placeholder="Search chats..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 h-9"
+                className="pl-8 h-8 bg-[#202c33] border-transparent text-xs text-slate-100 placeholder:text-slate-500 rounded-lg"
               />
             </div>
           </div>
+
+          {/* Chat list (groups shown first, then direct chats) */}
           <div className="flex-1 overflow-y-auto">
             {filteredConvos.length === 0 ? (
-              <div className="p-4 text-center text-sm text-muted-foreground">
+              <div className="p-4 text-center text-xs text-slate-500">
                 {searchQuery ? "No conversations match your search." : "No conversations yet. Start a new chat."}
               </div>
             ) : (
               filteredConvos.map((c) => (
                 <div
                   key={c.id}
-                  className={`p-3 cursor-pointer hover:bg-muted/50 border-b border-muted/50 ${selectedConvo?.id === c.id ? "bg-muted" : ""}`}
+                  className={`px-3 py-2 cursor-pointer border-b border-[#202c33] transition-colors ${
+                    selectedConvo?.id === c.id ? "bg-[#202c33]" : "bg-[#111b21] hover:bg-[#202c33]"
+                  }`}
                   onClick={() => setSelectedConvo(c)}
                 >
                   <div className="flex items-start gap-2">
                     <Avatar className="h-9 w-9 shrink-0">
-                      <AvatarFallback className="text-xs">
+                      <AvatarFallback className="text-xs bg-[#202c33] text-slate-100">
                         {(c.title || `#${c.id}`).slice(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-1">
-                        <span className="font-medium truncate">{c.title || `Chat #${c.id}`}</span>
+                        <span className="font-medium truncate text-sm">
+                          {c.title || (c.type === "group" ? `Group #${c.id}` : `Chat #${c.id}`)}
+                        </span>
                         {c.unreadCount! > 0 && (
-                          <span className="shrink-0 rounded-full bg-primary text-primary-foreground text-xs px-1.5 py-0.5">
+                          <span className="shrink-0 rounded-full bg-emerald-500 text-white text-[10px] px-1.5 py-0.5">
                             {c.unreadCount}
                           </span>
                         )}
                       </div>
                       {c.lastMessage && (
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        <p className="text-[11px] text-slate-400 truncate mt-0.5">
                           {c.lastMessage.body}
                         </p>
                       )}
-                      <p className="text-xs text-muted-foreground mt-0.5">
+                      <p className="text-[10px] text-slate-500 mt-0.5 capitalize">
+                        {c.type}
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
                         {c.lastMessage
                           ? formatDistanceToNow(new Date(c.lastMessage.createdAt), { addSuffix: true })
                           : format(new Date(c.createdAt), "MMM d")}
@@ -363,34 +556,67 @@ export default function ChatPage() {
           </div>
         </div>
 
-        <div className="flex-1 flex flex-col min-w-0">
+        {/* Middle: active conversation pane */}
+        <div className="flex-1 flex flex-col min-w-0 bg-[#0b141a]">
           {selectedConvo ? (
             <>
-              <div className="p-3 border-b flex items-center justify-between bg-background">
-                <div>
-                  <h3 className="font-medium">{selectedConvo.title || `Chat #${selectedConvo.id}`}</h3>
-                  <p className="text-xs text-muted-foreground">
+              {/* Chat header */}
+              <div className="px-4 py-2 border-b border-[#202c33] flex items-center justify-between bg-[#202c33] text-slate-100">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Avatar className="h-8 w-8 shrink-0">
+                    <AvatarFallback className="text-xs bg-[#111b21]">
+                      {(selectedConvo.title || `#${selectedConvo.id}`).slice(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <h3 className="font-medium text-sm truncate">
+                      {selectedConvo.title || `Chat #${selectedConvo.id}`}
+                    </h3>
+                    <p className="text-[11px] text-slate-300 truncate">
                     {(participants as { user?: { fullName?: string; username?: string } }[]).length > 0
                       ? (participants as { user?: { fullName?: string; username?: string } }[])
                           .map((p) => p.user?.fullName || p.user?.username)
                           .filter(Boolean)
                           .join(", ")
-                      : "Just you"}
-                  </p>
+                        : "Just you"}
+                    </p>
+                  </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setAddParticipantsOpen(true)}
-                  title="Add participants"
-                >
-                  <Users className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-slate-300 hover:bg-[#111b21] hover:text-slate-100"
+                    title="Start voice call"
+                    onClick={() => setLocation(`/calls?conversationId=${selectedConvo.id}&type=voice`)}
+                  >
+                    <span className="text-xs font-semibold">📞</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-slate-300 hover:bg-[#111b21] hover:text-slate-100"
+                    title="Start video call"
+                    onClick={() => setLocation(`/calls?conversationId=${selectedConvo.id}&type=video`)}
+                  >
+                    <span className="text-xs font-semibold">🎥</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setAddParticipantsOpen(true)}
+                    title="Add participants"
+                    className="text-slate-300 hover:bg-[#111b21] hover:text-slate-100"
+                  >
+                    <Users className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {/* Messages area */}
+              <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-[radial-gradient(circle_at_top,_#111b21,_#0b141a)]">
                 {messages.length === 0 && (
-                  <div className="text-center text-muted-foreground text-sm py-8">
+                  <div className="text-center text-slate-500 text-sm py-8">
                     No messages yet. Say hello!
                   </div>
                 )}
@@ -408,9 +634,11 @@ export default function ChatPage() {
                         </Avatar>
                       )}
                       <div
-                        className={`rounded-lg px-3 py-2 ${
-                          m.senderId === user?.id ? "bg-primary text-primary-foreground" : "bg-muted"
-                        } ${editingMessageId === m.id ? "ring-2 ring-offset-2 ring-primary" : ""}`}
+                        className={`rounded-2xl px-3 py-2 shadow-sm ${
+                          m.senderId === user?.id
+                            ? "bg-emerald-600 text-emerald-50 rounded-br-sm"
+                            : "bg-white text-foreground rounded-bl-sm"
+                        } ${editingMessageId === m.id ? "ring-2 ring-offset-2 ring-emerald-500" : ""}`}
                       >
                         {editingMessageId === m.id ? (
                           <div className="space-y-2">
@@ -451,42 +679,145 @@ export default function ChatPage() {
                           </div>
                         ) : (
                           <>
-                            <p className="text-xs opacity-80 mb-1">
+                            <p className="text-[11px] opacity-80 mb-1">
                               {m.sender?.fullName || m.sender?.username || "Unknown"}
                             </p>
-                            <p className="text-sm whitespace-pre-wrap break-words">{m.body}</p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <p className="text-xs opacity-70">
+                            {/* Render replies, voice, location, and attachments in a WhatsApp-like way */}
+                            {m.body.startsWith("__VOICE__::") ? (
+                              (() => {
+                                const parts = m.body.split("::");
+                                const url = parts[1];
+                                return (
+                                  <div className="space-y-1">
+                                    <audio controls src={url} className="max-w-[220px] h-9" preload="metadata" />
+                                    <p className="text-[10px] text-muted-foreground">Voice note</p>
+                                  </div>
+                                );
+                              })()
+                            ) : m.body.startsWith("__LOCATION__::") ? (
+                              (() => {
+                                const parts = m.body.split("::");
+                                const lat = parts[1];
+                                const lng = parts[2];
+                                const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+                                return (
+                                  <a
+                                    href={mapUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-xs underline text-emerald-600 hover:text-emerald-500"
+                                  >
+                                    📍 Location: {lat}, {lng}
+                                  </a>
+                                );
+                              })()
+                            ) : m.body.startsWith("__FILE__::") ? (
+                              (() => {
+                                const parts = m.body.split("::");
+                                const url = parts[1];
+                                const name = parts[2] || "Attachment";
+                                const isImage = /\.(png|jpe?g|gif|webp)$/i.test(url || "");
+                                return (
+                                  <div className="space-y-1">
+                                    {isImage && (
+                                      <a href={url} target="_blank" rel="noreferrer">
+                                        <img
+                                          src={url}
+                                          alt={name}
+                                          className="max-w-[220px] max-h-[180px] rounded-lg border border-black/10 bg-black/10 object-cover"
+                                        />
+                                      </a>
+                                    )}
+                                    <a
+                                      href={url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-xs underline break-all"
+                                    >
+                                      {name}
+                                    </a>
+                                  </div>
+                                );
+                              })()
+                            ) : m.body.startsWith("↩️ ") ? (
+                              (() => {
+                                const [quotePart, restPart] = m.body.split("\n\n", 2);
+                                return (
+                                  <div className="space-y-1">
+                                    <div className="border-l-2 border-emerald-300/80 pl-2 pr-1 py-1 bg-black/5 rounded-sm text-[10px] opacity-90">
+                                      {quotePart.replace(/^↩️\s*/, "")}
+                                    </div>
+                                    {restPart && (
+                                      <p className="text-sm whitespace-pre-wrap break-words">{restPart}</p>
+                                    )}
+                                  </div>
+                                );
+                              })()
+                            ) : (
+                              <p className="text-sm whitespace-pre-wrap break-words">{m.body}</p>
+                            )}
+                            <div className="flex items-center justify-between gap-2 mt-1 text-[11px] opacity-80">
+                              <span>
                                 {format(new Date(m.createdAt), "HH:mm")}
                                 {m.editedAt && " (edited)"}
-                              </p>
-                              {m.senderId === user?.id && (
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-70 hover:opacity-100 -mr-1">
-                                      <MoreVertical className="h-3 w-3" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end" className="w-40">
-                                    <DropdownMenuItem
-                                      onClick={() => {
-                                        setEditingMessageId(m.id);
-                                        setEditBody(m.body);
-                                      }}
-                                    >
-                                      <Pencil className="h-3 w-3 mr-2" />
-                                      Edit
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      className="text-destructive"
-                                      onClick={() => deleteMessageMutation.mutate(m.id)}
-                                    >
-                                      <Trash2 className="h-3 w-3 mr-2" />
-                                      Delete
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              )}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                {m.senderId === user?.id && (
+                                  <>
+                                    {(() => {
+                                      const status = computeMessageStatus(m);
+                                      if (status === "read") {
+                                        return <CheckCheck className="h-3 w-3 text-sky-300" />;
+                                      }
+                                      if (status === "delivered") {
+                                        return <CheckCheck className="h-3 w-3" />;
+                                      }
+                                      if (status === "sent") {
+                                        return <Check className="h-3 w-3" />;
+                                      }
+                                      return null;
+                                    })()}
+                                  </>
+                                )}
+                                {m.senderId === user?.id && (
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-5 w-5 opacity-70 hover:opacity-100 -mr-1"
+                                      >
+                                        <MoreVertical className="h-3 w-3" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-44">
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setReplyTo(m);
+                                        }}
+                                      >
+                                        Reply
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setEditingMessageId(m.id);
+                                          setEditBody(m.body);
+                                        }}
+                                      >
+                                        <Pencil className="h-3 w-3 mr-2" />
+                                        Edit
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        className="text-destructive"
+                                        onClick={() => deleteMessageMutation.mutate(m.id)}
+                                      >
+                                        <Trash2 className="h-3 w-3 mr-2" />
+                                        Delete
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                )}
+                              </span>
                             </div>
                           </>
                         )}
@@ -507,41 +838,125 @@ export default function ChatPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              <div className="p-3 border-t flex gap-2 bg-background">
-                <Input
-                  placeholder="Type a message..."
-                  value={newMessage}
-                  onChange={(e) => {
-                    setNewMessage(e.target.value);
-                    handleTyping();
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (newMessage.trim()) sendMutation.mutate(newMessage.trim());
-                    }
-                  }}
-                />
-                <Button
-                  onClick={() => newMessage.trim() && sendMutation.mutate(newMessage.trim())}
-                  disabled={!newMessage.trim() || sendMutation.isPending}
-                >
-                  {sendMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
-                </Button>
+              {/* Composer */}
+              <div className="px-4 py-2 border-t border-[#202c33] bg-[#202c33]">
+                {replyTo && (
+                  <div className="mb-2 px-3 py-1.5 rounded-lg bg-white border border-emerald-100 text-xs flex items-start justify-between">
+                    <div className="mr-2">
+                      <p className="font-medium text-emerald-700">
+                        Replying to {replyTo.sender?.fullName || replyTo.sender?.username || "message"}
+                      </p>
+                      <p className="line-clamp-2 text-muted-foreground">{replyTo.body}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-destructive text-xs"
+                      onClick={() => setReplyTo(null)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="ghost" size="icon" className="text-slate-300 hover:bg-[#111b21]">
+                    <Smile className="h-5 w-5" />
+                  </Button>
+                  <div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="text-slate-300 hover:bg-[#111b21]"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploading}
+                      title="Document or image"
+                    >
+                      <Paperclip className="h-5 w-5" />
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      accept="image/*,application/pdf,.doc,.docx,text/plain,audio/*"
+                      onChange={handleFileChange}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={isRecording ? "text-red-400 bg-red-500/20" : "text-slate-300 hover:bg-[#111b21]"}
+                    onClick={handleVoiceNote}
+                    disabled={isUploading}
+                    title={isRecording ? "Stop recording" : "Voice note"}
+                  >
+                    <Mic className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="text-slate-300 hover:bg-[#111b21]"
+                    onClick={handleShareLocation}
+                    disabled={isUploading}
+                    title="Share location"
+                  >
+                    <MapPin className="h-5 w-5" />
+                  </Button>
+                  <Input
+                    placeholder="Type a message"
+                    value={newMessage}
+                    onChange={(e) => {
+                      setNewMessage(e.target.value);
+                      handleTyping();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        if (newMessage.trim()) {
+                          const payload = replyTo
+                            ? `↩️ ${replyTo.sender?.fullName || replyTo.sender?.username || "Message"}: ${
+                                replyTo.body
+                              }\n\n${newMessage.trim()}`
+                            : newMessage.trim();
+                          sendMutation.mutate(payload);
+                          setReplyTo(null);
+                        }
+                      }
+                    }}
+                    className="flex-1 bg-[#111b21] border-transparent text-slate-100 placeholder:text-slate-500 text-sm rounded-lg"
+                  />
+                  <Button
+                    onClick={() => {
+                      if (!newMessage.trim()) return;
+                      const payload = replyTo
+                        ? `↩️ ${replyTo.sender?.fullName || replyTo.sender?.username || "Message"}: ${
+                            replyTo.body
+                          }\n\n${newMessage.trim()}`
+                        : newMessage.trim();
+                      sendMutation.mutate(payload);
+                      setReplyTo(null);
+                    }}
+                    disabled={!newMessage.trim() || sendMutation.isPending}
+                    className="rounded-full h-9 w-9 p-0 flex items-center justify-center bg-emerald-500 hover:bg-emerald-400 text-white"
+                  >
+                    {sendMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
               </div>
             </>
           ) : (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground bg-muted/10">
-              <Card className="max-w-sm">
+            <div className="flex-1 flex items-center justify-center text-slate-500 bg-[#0b141a]">
+              <Card className="max-w-sm bg-[#111b21] border-[#202c33] text-slate-100">
                 <CardContent className="pt-6 text-center">
-                  <MessageCircle className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-                  <p className="font-medium">Select a conversation or create a new one</p>
-                  <p className="text-sm mt-1">Use the + button to start a chat with your team.</p>
-                  <Button className="mt-4" onClick={() => setCreateOpen(true)}>
+                  <MessageCircle className="h-12 w-12 mx-auto text-slate-500 mb-3" />
+                  <p className="font-medium text-sm">Select a conversation or start a new one</p>
+                  <p className="text-xs mt-1 text-slate-400">Use the + button above to open a chat.</p>
+                  <Button className="mt-4 bg-emerald-500 hover:bg-emerald-400" onClick={() => setCreateOpen(true)}>
                     <Plus className="h-4 w-4 mr-2" />
                     New chat
                   </Button>
@@ -551,16 +966,17 @@ export default function ChatPage() {
           )}
         </div>
 
-        <div className="w-64 border-l flex flex-col bg-muted/20 shrink-0">
-          <div className="p-3 border-b">
-            <h2 className="font-semibold text-sm">People</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
+        {/* Right: people/online users pane */}
+        <div className="w-64 border-l border-[#202c33] flex flex-col bg-[#111b21] text-slate-100 shrink-0">
+          <div className="px-3 py-2 border-b border-[#202c33]">
+            <h2 className="font-semibold text-xs uppercase tracking-wide text-slate-400">People</h2>
+            <p className="text-[11px] text-slate-500 mt-0.5">
               {onlineUserIds.size} online
             </p>
           </div>
           <div className="flex-1 overflow-y-auto">
             {otherUsers.length === 0 ? (
-              <div className="p-3 text-center text-xs text-muted-foreground">No other users</div>
+              <div className="p-3 text-center text-xs text-slate-500">No other users</div>
             ) : (
               otherUsers.map((u) => {
                 const isOnline = onlineUserIds.has(u.id);
@@ -568,11 +984,11 @@ export default function ChatPage() {
                   <button
                     key={u.id}
                     type="button"
-                    className="w-full flex items-center gap-2 p-3 hover:bg-muted/50 border-b border-muted/50 text-left"
+                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#202c33] border-b border-[#202c33] text-left"
                     onClick={() => handleStartChatWithUser(u)}
                   >
                     <Avatar className="h-8 w-8 shrink-0 relative">
-                      <AvatarFallback className="text-xs">
+                      <AvatarFallback className="text-xs bg-[#202c33]">
                         {(u.fullName || u.username || "?").slice(0, 2).toUpperCase()}
                       </AvatarFallback>
                       {isOnline && (
@@ -584,7 +1000,7 @@ export default function ChatPage() {
                     </Avatar>
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-sm truncate">{u.fullName || u.username}</p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-[11px] text-slate-500">
                         {isOnline ? (
                           <span className="text-green-600 flex items-center gap-1">
                             <Circle className="h-2 w-2 fill-current" />
@@ -611,13 +1027,42 @@ export default function ChatPage() {
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium">Title</label>
-              <Input
-                placeholder="Chat title"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                className="mt-1"
-              />
+                  <Input
+                    placeholder="Chat or group name"
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    className="mt-1"
+                  />
             </div>
+
+                {isAdminUser && (
+                  <div>
+                    <label className="text-sm font-medium">Conversation type</label>
+                    <div className="mt-1 flex items-center gap-4 text-sm">
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="convType"
+                          checked={!newIsGroup}
+                          onChange={() => setNewIsGroup(false)}
+                        />
+                        <span>Direct chat</span>
+                      </label>
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="convType"
+                          checked={newIsGroup}
+                          onChange={() => setNewIsGroup(true)}
+                        />
+                        <span>Group chat</span>
+                      </label>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Only admins can create formal groups. Groups can have many members.
+                    </p>
+                  </div>
+                )}
             <div>
               <label className="text-sm font-medium">Add participants</label>
               <Select

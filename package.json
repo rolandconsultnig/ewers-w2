@@ -14,10 +14,15 @@
     "db:push": "drizzle-kit push",
     "db:migrate:call-participants": "tsx scripts/migrate-call-participants-guest.ts",
     "db:seed": "tsx scripts/seed-admin.ts",
+    "db:seed:responder-admin": "tsx scripts/seed-responder-admin.ts",
     "db:seed:global": "tsx scripts/create-global-user.ts",
     "db:seed:nigeria-issues": "tsx scripts/seed-nigeria-recent-issues.ts",
     "db:seed:election-2026": "tsx scripts/seed-election-2026-news.ts",
-    "db:seed:incidents": "cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 DATABASE_SSL_NO_VERIFY=true tsx server/seed-incidents.ts"
+    "db:seed:incidents": "cross-env NODE_TLS_REJECT_UNAUTHORIZED=0 DATABASE_SSL_NO_VERIFY=true tsx server/seed-incidents.ts",
+    "db:migrate:responder-schema": "tsx migrations/09_responder_workflow_schema.ts",
+    "db:migrate:responder-backfill": "tsx migrations/10_backfill_responder_workflow_data.ts",
+    "db:migrate:responder": "npm run db:migrate:responder-schema && npm run db:migrate:responder-backfill",
+    "db:migrate:agency": "tsx migrations/14_add_agency_to_response_teams.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -61,6 +66,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
     "connect-pg-simple": "^10.0.0",
+    "cors": "^2.8.6",
     "date-fns": "^3.6.0",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.39.1",
