@@ -524,6 +524,89 @@ export const insertSettingSchema = createInsertSchema(settings).pick({
   updatedBy: true,
 });
 
+export const workflowTemplates = pgTable("workflow_templates", {
+  id: serial("id").notNull().primaryKey(),
+  name: text("name").notNull(),
+  entityType: text("entity_type").notNull(),
+  activityType: text("activity_type"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const workflowStages = pgTable("workflow_stages", {
+  id: serial("id").notNull().primaryKey(),
+  templateId: integer("template_id").notNull().references(() => workflowTemplates.id),
+  name: text("name").notNull(),
+  stageOrder: integer("stage_order").notNull(),
+  allowedRoles: text("allowed_roles").array(),
+});
+
+export const workflowTransitions = pgTable("workflow_transitions", {
+  id: serial("id").notNull().primaryKey(),
+  templateId: integer("template_id").notNull().references(() => workflowTemplates.id),
+  fromStageId: integer("from_stage_id").notNull().references(() => workflowStages.id),
+  toStageId: integer("to_stage_id").notNull().references(() => workflowStages.id),
+  allowedRoles: text("allowed_roles").array(),
+});
+
+export const workflowInstances = pgTable("workflow_instances", {
+  id: serial("id").notNull().primaryKey(),
+  templateId: integer("template_id").notNull().references(() => workflowTemplates.id),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id").notNull(),
+  currentStageId: integer("current_stage_id").notNull().references(() => workflowStages.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const workflowHistory = pgTable("workflow_history", {
+  id: serial("id").notNull().primaryKey(),
+  instanceId: integer("instance_id").notNull().references(() => workflowInstances.id),
+  fromStageId: integer("from_stage_id").references(() => workflowStages.id),
+  toStageId: integer("to_stage_id").references(() => workflowStages.id),
+  movedBy: integer("moved_by").references(() => users.id),
+  comment: text("comment"),
+  movedAt: timestamp("moved_at").notNull().defaultNow(),
+});
+
+export const insertWorkflowTemplateSchema = createInsertSchema(workflowTemplates).pick({
+  name: true,
+  entityType: true,
+  activityType: true,
+  isActive: true,
+  createdBy: true,
+});
+
+export const insertWorkflowStageSchema = createInsertSchema(workflowStages).pick({
+  templateId: true,
+  name: true,
+  stageOrder: true,
+  allowedRoles: true,
+});
+
+export const insertWorkflowTransitionSchema = createInsertSchema(workflowTransitions).pick({
+  templateId: true,
+  fromStageId: true,
+  toStageId: true,
+  allowedRoles: true,
+});
+
+export const insertWorkflowInstanceSchema = createInsertSchema(workflowInstances).pick({
+  templateId: true,
+  entityType: true,
+  entityId: true,
+  currentStageId: true,
+});
+
+export const insertWorkflowHistorySchema = createInsertSchema(workflowHistory).pick({
+  instanceId: true,
+  fromStageId: true,
+  toStageId: true,
+  movedBy: true,
+  comment: true,
+});
+
 // Notifications - User notifications (alerts, crisis updates)
 export const notifications = pgTable("notifications", {
   id: serial("id").notNull().primaryKey(),
@@ -625,6 +708,17 @@ export type Report = typeof reports.$inferSelect;
 
 export type InsertSetting = z.infer<typeof insertSettingSchema>;
 export type Setting = typeof settings.$inferSelect;
+
+export type InsertWorkflowTemplate = z.infer<typeof insertWorkflowTemplateSchema>;
+export type WorkflowTemplate = typeof workflowTemplates.$inferSelect;
+export type InsertWorkflowStage = z.infer<typeof insertWorkflowStageSchema>;
+export type WorkflowStage = typeof workflowStages.$inferSelect;
+export type InsertWorkflowTransition = z.infer<typeof insertWorkflowTransitionSchema>;
+export type WorkflowTransition = typeof workflowTransitions.$inferSelect;
+export type InsertWorkflowInstance = z.infer<typeof insertWorkflowInstanceSchema>;
+export type WorkflowInstance = typeof workflowInstances.$inferSelect;
+export type InsertWorkflowHistory = z.infer<typeof insertWorkflowHistorySchema>;
+export type WorkflowHistory = typeof workflowHistory.$inferSelect;
 
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type Notification = typeof notifications.$inferSelect;

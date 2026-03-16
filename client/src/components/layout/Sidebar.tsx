@@ -186,6 +186,7 @@ export default function Sidebar({ isMobileMenuOpen, closeMobileMenu }: SidebarPr
         { path: "/enterprise-settings", label: t("nav.enterpriseSettings"), icon: <Settings className="mr-3 h-5 w-5" /> },
         { path: "/user-management", label: t("nav.userManagement"), icon: <Users className="mr-3 h-5 w-5" /> },
         { path: "/cms", label: "CMS", icon: <FileText className="mr-3 h-5 w-5" /> },
+        { path: "/workflows", label: "Workflows", icon: <Workflow className="mr-3 h-5 w-5" /> },
         { path: "/integrations", label: t("nav.integrations"), icon: <LinkIcon className="mr-3 h-5 w-5" /> },
         { path: "/reporting", label: t("nav.reporting"), icon: <FileText className="mr-3 h-5 w-5" /> },
         { path: "/settings", label: t("nav.settings"), icon: <Settings className="mr-3 h-5 w-5" /> },

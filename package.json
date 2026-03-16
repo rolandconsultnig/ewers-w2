@@ -22,7 +22,8 @@
     "db:migrate:responder-schema": "tsx migrations/09_responder_workflow_schema.ts",
     "db:migrate:responder-backfill": "tsx migrations/10_backfill_responder_workflow_data.ts",
     "db:migrate:responder": "npm run db:migrate:responder-schema && npm run db:migrate:responder-backfill",
-    "db:migrate:agency": "tsx migrations/14_add_agency_to_response_teams.ts"
+    "db:migrate:agency": "tsx migrations/14_add_agency_to_response_teams.ts",
+    "db:migrate:workflows": "tsx migrations/15_workflow_process_maker.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

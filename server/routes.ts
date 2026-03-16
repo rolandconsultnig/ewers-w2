@@ -4,6 +4,7 @@ import { Server as SocketIOServer } from "socket.io";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
 import { registerCmsRoutes } from "./routes/cms";
+import { setupWorkflowRoutes } from "./routes/workflows";
 import { z } from "zod";
 import {
   insertDataSourceSchema,
@@ -94,6 +95,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register CMS routes
   registerCmsRoutes(app);
+
+  // Register workflow process maker routes
+  setupWorkflowRoutes(app, storage);
 
   // Debug endpoint to diagnose incident count discrepancy
   app.get("/api/debug/incident-count", async (_req, res) => {

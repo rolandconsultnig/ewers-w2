@@ -1,4 +1,4 @@
-import { users, dataSources, collectedData, processedData, incidents, alerts, responseActivities, responseTeams, riskIndicators, riskAnalyses, responsePlans, feedbacks, reports, settings, accessLogs, apiKeys, webhooks, cases, caseNotes, incidentDiscussions, conversations, conversationParticipants, messages, messageAttachments, callSessions, callParticipants, conversationKeys, cmsContent } from "@shared/schema";
+import { users, dataSources, collectedData, processedData, incidents, alerts, responseActivities, responseTeams, riskIndicators, riskAnalyses, responsePlans, feedbacks, reports, settings, accessLogs, apiKeys, webhooks, cases, caseNotes, incidentDiscussions, conversations, conversationParticipants, messages, messageAttachments, callSessions, callParticipants, conversationKeys, cmsContent, workflowTemplates, workflowStages, workflowTransitions, workflowInstances, workflowHistory } from "@shared/schema";
 import type { 
   User, InsertUser, 
   DataSource, InsertDataSource, 
@@ -27,7 +27,15 @@ import type {
   CallSession, InsertCallSession,
   CallParticipant, InsertCallParticipant,
   ConversationKey, InsertConversationKey,
-  CmsContent, InsertCmsContent
+  CmsContent, InsertCmsContent,
+  WorkflowTemplate,
+  InsertWorkflowTemplate,
+  WorkflowStage,
+  InsertWorkflowStage,
+  WorkflowTransition,
+  InsertWorkflowTransition,
+  WorkflowInstance,
+  WorkflowHistory,
 } from "@shared/schema";
 import session from "express-session";
 import { db, pool } from "./db";
@@ -207,6 +215,58 @@ export interface IStorage {
   createCmsContent(content: InsertCmsContent): Promise<CmsContent>;
   updateCmsContent(section: string, content: Partial<CmsContent>): Promise<CmsContent>;
   deleteCmsContent(section: string): Promise<boolean>;
+
+  // Workflow process maker
+  getWorkflowTemplates(filters?: { entityType?: string; activityType?: string }): Promise<WorkflowTemplate[]>;
+  getWorkflowTemplate(id: number): Promise<WorkflowTemplate | undefined>;
+  getWorkflowStages(templateId: number): Promise<WorkflowStage[]>;
+  getWorkflowTransitions(templateId: number): Promise<WorkflowTransition[]>;
+
+  createWorkflowTemplateWithGraph(input: {
+    template: Omit<InsertWorkflowTemplate, "id">;
+    stages: Array<Pick<InsertWorkflowStage, "name" | "stageOrder" | "allowedRoles">>;
+    transitions: Array<{ fromStageOrder: number; toStageOrder: number; allowedRoles?: string[] | null }> | null;
+  }): Promise<{ template: WorkflowTemplate; stages: WorkflowStage[]; transitions: WorkflowTransition[] }>;
+
+  replaceWorkflowTemplateGraph(
+    templateId: number,
+    input: {
+      template: Partial<Pick<InsertWorkflowTemplate, "name" | "entityType" | "activityType" | "isActive">>;
+      stages: Array<Pick<InsertWorkflowStage, "name" | "stageOrder" | "allowedRoles">>;
+      transitions: Array<{ fromStageOrder: number; toStageOrder: number; allowedRoles?: string[] | null }> | null;
+      updatedBy: number;
+    },
+  ): Promise<{ template: WorkflowTemplate; stages: WorkflowStage[]; transitions: WorkflowTransition[] }>;
+
+  deleteWorkflowTemplate(templateId: number): Promise<boolean>;
+
+  createWorkflowInstanceForEntity(input: {
+    templateId: number;
+    entityType: string;
+    entityId: number;
+  }): Promise<WorkflowInstance>;
+
+  getWorkflowInstanceForEntity(
+    entityType: string,
+    entityId: number,
+  ): Promise<
+    | {
+        instance: WorkflowInstance;
+        template: WorkflowTemplate;
+        stages: WorkflowStage[];
+        transitions: WorkflowTransition[];
+        history: WorkflowHistory[];
+      }
+    | undefined
+  >;
+
+  moveWorkflowInstance(input: {
+    instanceId: number;
+    toStageId: number;
+    movedBy: number;
+    movedByRole: string;
+    comment: string | null;
+  }): Promise<{ instance: WorkflowInstance; historyEntry: WorkflowHistory }>;
 
   // Session store
   sessionStore: any;
@@ -1074,6 +1134,299 @@ export class DatabaseStorage implements IStorage {
   async deleteCmsContent(section: string): Promise<boolean> {
     const result = await db.delete(cmsContent).where(eq(cmsContent.section, section)).returning();
     return result.length > 0;
+  }
+
+  async getWorkflowTemplates(filters?: { entityType?: string; activityType?: string }): Promise<WorkflowTemplate[]> {
+    const conditions = [] as any[];
+    if (filters?.entityType) conditions.push(eq(workflowTemplates.entityType, filters.entityType));
+    if (filters?.activityType) conditions.push(eq(workflowTemplates.activityType, filters.activityType));
+    if (conditions.length > 0) {
+      return db.select().from(workflowTemplates).where(and(...conditions)).orderBy(desc(workflowTemplates.createdAt));
+    }
+    return db.select().from(workflowTemplates).orderBy(desc(workflowTemplates.createdAt));
+  }
+
+  async getWorkflowTemplate(id: number): Promise<WorkflowTemplate | undefined> {
+    const [row] = await db.select().from(workflowTemplates).where(eq(workflowTemplates.id, id));
+    return row;
+  }
+
+  async getWorkflowStages(templateId: number): Promise<WorkflowStage[]> {
+    return db.select().from(workflowStages).where(eq(workflowStages.templateId, templateId)).orderBy(workflowStages.stageOrder);
+  }
+
+  async getWorkflowTransitions(templateId: number): Promise<WorkflowTransition[]> {
+    return db.select().from(workflowTransitions).where(eq(workflowTransitions.templateId, templateId)).orderBy(workflowTransitions.id);
+  }
+
+  async createWorkflowTemplateWithGraph(input: {
+    template: Omit<InsertWorkflowTemplate, "id">;
+    stages: Array<Pick<InsertWorkflowStage, "name" | "stageOrder" | "allowedRoles">>;
+    transitions: Array<{ fromStageOrder: number; toStageOrder: number; allowedRoles?: string[] | null }> | null;
+  }): Promise<{ template: WorkflowTemplate; stages: WorkflowStage[]; transitions: WorkflowTransition[] }> {
+    return db.transaction(async (tx) => {
+      const [tpl] = await tx.insert(workflowTemplates).values([input.template as any]).returning();
+      if (!tpl) throw new Error("Failed to create workflow template");
+
+      const stageRows = input.stages
+        .slice()
+        .sort((a, b) => a.stageOrder - b.stageOrder)
+        .map((s) => ({
+          templateId: tpl.id,
+          name: s.name,
+          stageOrder: s.stageOrder,
+          allowedRoles: (s.allowedRoles as any) ?? null,
+        }));
+      const createdStages = stageRows.length > 0 ? await tx.insert(workflowStages).values(stageRows as any).returning() : [];
+      if (createdStages.length === 0) throw new Error("Workflow must have at least one stage");
+
+      const orderToId = new Map<number, number>();
+      for (const s of createdStages) orderToId.set((s as any).stageOrder, s.id);
+
+      const transitionDefs =
+        input.transitions && input.transitions.length > 0
+          ? input.transitions
+          : createdStages
+              .slice()
+              .sort((a, b) => (a as any).stageOrder - (b as any).stageOrder)
+              .map((s, idx, arr) => {
+                if (idx === arr.length - 1) return null;
+                return {
+                  fromStageOrder: (s as any).stageOrder,
+                  toStageOrder: (arr[idx + 1] as any).stageOrder,
+                  allowedRoles: null as string[] | null,
+                };
+              })
+              .filter(Boolean) as any;
+
+      const createdTransitions = transitionDefs.length
+        ? await tx
+            .insert(workflowTransitions)
+            .values(
+              transitionDefs.map((t: any) => ({
+                templateId: tpl.id,
+                fromStageId: orderToId.get(t.fromStageOrder)!,
+                toStageId: orderToId.get(t.toStageOrder)!,
+                allowedRoles: t.allowedRoles ?? null,
+              })) as any,
+            )
+            .returning()
+        : [];
+
+      return { template: tpl, stages: createdStages, transitions: createdTransitions };
+    });
+  }
+
+  async replaceWorkflowTemplateGraph(
+    templateId: number,
+    input: {
+      template: Partial<Pick<InsertWorkflowTemplate, "name" | "entityType" | "activityType" | "isActive">>;
+      stages: Array<Pick<InsertWorkflowStage, "name" | "stageOrder" | "allowedRoles">>;
+      transitions: Array<{ fromStageOrder: number; toStageOrder: number; allowedRoles?: string[] | null }> | null;
+      updatedBy: number;
+    },
+  ): Promise<{ template: WorkflowTemplate; stages: WorkflowStage[]; transitions: WorkflowTransition[] }> {
+    return db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(workflowTemplates).where(eq(workflowTemplates.id, templateId));
+      if (!existing) throw new Error("Workflow template not found");
+
+      const [tpl] = await tx
+        .update(workflowTemplates)
+        .set({
+          ...(input.template.name != null ? { name: input.template.name as any } : {}),
+          ...(input.template.entityType != null ? { entityType: input.template.entityType as any } : {}),
+          ...(input.template.activityType !== undefined ? { activityType: (input.template.activityType as any) ?? null } : {}),
+          ...(input.template.isActive != null ? { isActive: input.template.isActive as any } : {}),
+        } as any)
+        .where(eq(workflowTemplates.id, templateId))
+        .returning();
+      if (!tpl) throw new Error("Failed to update workflow template");
+
+      await tx.delete(workflowTransitions).where(eq(workflowTransitions.templateId, templateId));
+      await tx.delete(workflowStages).where(eq(workflowStages.templateId, templateId));
+
+      const stageRows = input.stages
+        .slice()
+        .sort((a, b) => a.stageOrder - b.stageOrder)
+        .map((s) => ({
+          templateId,
+          name: s.name,
+          stageOrder: s.stageOrder,
+          allowedRoles: (s.allowedRoles as any) ?? null,
+        }));
+      const createdStages = stageRows.length > 0 ? await tx.insert(workflowStages).values(stageRows as any).returning() : [];
+      if (createdStages.length === 0) throw new Error("Workflow must have at least one stage");
+
+      const orderToId = new Map<number, number>();
+      for (const s of createdStages) orderToId.set((s as any).stageOrder, s.id);
+
+      const transitionDefs =
+        input.transitions && input.transitions.length > 0
+          ? input.transitions
+          : createdStages
+              .slice()
+              .sort((a, b) => (a as any).stageOrder - (b as any).stageOrder)
+              .map((s, idx, arr) => {
+                if (idx === arr.length - 1) return null;
+                return {
+                  fromStageOrder: (s as any).stageOrder,
+                  toStageOrder: (arr[idx + 1] as any).stageOrder,
+                  allowedRoles: null as string[] | null,
+                };
+              })
+              .filter(Boolean) as any;
+
+      const createdTransitions = transitionDefs.length
+        ? await tx
+            .insert(workflowTransitions)
+            .values(
+              transitionDefs.map((t: any) => ({
+                templateId,
+                fromStageId: orderToId.get(t.fromStageOrder)!,
+                toStageId: orderToId.get(t.toStageOrder)!,
+                allowedRoles: t.allowedRoles ?? null,
+              })) as any,
+            )
+            .returning()
+        : [];
+
+      return { template: tpl, stages: createdStages, transitions: createdTransitions };
+    });
+  }
+
+  async deleteWorkflowTemplate(templateId: number): Promise<boolean> {
+    const result = await db.delete(workflowTemplates).where(eq(workflowTemplates.id, templateId)).returning();
+    return result.length > 0;
+  }
+
+  async createWorkflowInstanceForEntity(input: {
+    templateId: number;
+    entityType: string;
+    entityId: number;
+  }): Promise<WorkflowInstance> {
+    return db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(workflowInstances)
+        .where(and(eq(workflowInstances.entityType, input.entityType), eq(workflowInstances.entityId, input.entityId)));
+      if (existing) return existing;
+
+      const stages = await tx
+        .select()
+        .from(workflowStages)
+        .where(eq(workflowStages.templateId, input.templateId))
+        .orderBy(workflowStages.stageOrder);
+      if (stages.length === 0) throw new Error("Template has no stages");
+      const firstStage = stages[0];
+
+      const [instance] = await tx
+        .insert(workflowInstances)
+        .values([
+          {
+            templateId: input.templateId,
+            entityType: input.entityType,
+            entityId: input.entityId,
+            currentStageId: firstStage.id,
+          } as any,
+        ])
+        .returning();
+      if (!instance) throw new Error("Failed to create workflow instance");
+
+      await tx.insert(workflowHistory).values([
+        {
+          instanceId: instance.id,
+          fromStageId: null,
+          toStageId: firstStage.id,
+          movedBy: null,
+          comment: "Instance created",
+        } as any,
+      ]);
+
+      return instance;
+    });
+  }
+
+  async getWorkflowInstanceForEntity(
+    entityType: string,
+    entityId: number,
+  ): Promise<
+    | {
+        instance: WorkflowInstance;
+        template: WorkflowTemplate;
+        stages: WorkflowStage[];
+        transitions: WorkflowTransition[];
+        history: WorkflowHistory[];
+      }
+    | undefined
+  > {
+    const [instance] = await db
+      .select()
+      .from(workflowInstances)
+      .where(and(eq(workflowInstances.entityType, entityType), eq(workflowInstances.entityId, entityId)));
+    if (!instance) return undefined;
+    const [template] = await db.select().from(workflowTemplates).where(eq(workflowTemplates.id, (instance as any).templateId));
+    if (!template) return undefined;
+    const [stages, transitions, history] = await Promise.all([
+      this.getWorkflowStages(template.id),
+      this.getWorkflowTransitions(template.id),
+      db.select().from(workflowHistory).where(eq(workflowHistory.instanceId, instance.id)).orderBy(desc(workflowHistory.movedAt)),
+    ]);
+    return { instance, template, stages, transitions, history };
+  }
+
+  async moveWorkflowInstance(input: {
+    instanceId: number;
+    toStageId: number;
+    movedBy: number;
+    movedByRole: string;
+    comment: string | null;
+  }): Promise<{ instance: WorkflowInstance; historyEntry: WorkflowHistory }> {
+    return db.transaction(async (tx) => {
+      const [instance] = await tx.select().from(workflowInstances).where(eq(workflowInstances.id, input.instanceId));
+      if (!instance) throw new Error("Invalid workflow instance");
+
+      const fromStageId = (instance as any).currentStageId as number;
+      if (fromStageId === input.toStageId) throw new Error("Invalid move: already in that stage");
+
+      const [transition] = await tx
+        .select()
+        .from(workflowTransitions)
+        .where(
+          and(
+            eq(workflowTransitions.templateId, (instance as any).templateId),
+            eq(workflowTransitions.fromStageId, fromStageId),
+            eq(workflowTransitions.toStageId, input.toStageId),
+          ),
+        );
+      if (!transition) throw new Error("Invalid transition");
+
+      const allowed = (transition as any).allowedRoles as string[] | null;
+      const canMove = input.movedByRole === "admin" || !allowed || allowed.length === 0 || allowed.includes(input.movedByRole);
+      if (!canMove) throw new Error("Forbidden: role cannot perform this transition");
+
+      const [updated] = await tx
+        .update(workflowInstances)
+        .set({ currentStageId: input.toStageId, updatedAt: new Date() } as any)
+        .where(eq(workflowInstances.id, input.instanceId))
+        .returning();
+      if (!updated) throw new Error("Failed to update instance");
+
+      const [h] = await tx
+        .insert(workflowHistory)
+        .values([
+          {
+            instanceId: input.instanceId,
+            fromStageId,
+            toStageId: input.toStageId,
+            movedBy: input.movedBy,
+            comment: input.comment ?? null,
+          } as any,
+        ])
+        .returning();
+      if (!h) throw new Error("Failed to write history");
+
+      return { instance: updated, historyEntry: h };
+    });
   }
 }
 
