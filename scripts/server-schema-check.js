@@ -5,9 +5,13 @@
  * Run this on the production server to check database schema
  */
 
-const { Pool } = require('pg');
-const fs = require('fs');
-const path = require('path');
+import { Pool } from 'pg';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Database connection from environment
 const DATABASE_URL = process.env.DATABASE_URL || "postgresql://ewers_user:Samolan123@localhost:5432/ewers_db";
