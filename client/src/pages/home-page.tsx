@@ -1,8 +1,20 @@
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UserCircle, AlertCircle, BookOpen, HeartHandshake, ArrowRight, Coffee, ExternalLink, Mic } from "lucide-react";
+import {
+  ArrowRight,
+  BookOpen,
+  ExternalLink,
+  Globe,
+  HeartHandshake,
+  MapPin,
+  Mic,
+  ShieldCheck,
+  Sparkles,
+  UserCircle,
+} from "lucide-react";
 import { useI18n } from "@/contexts/I18nContext";
 
 // Import the IPCR logo and DG image
@@ -16,21 +28,57 @@ export default function HomePage() {
     if (value === "en" || value === "ig" || value === "ha" || value === "yo") setLanguage(value);
   };
 
+  const { data: cmsContents } = useQuery({
+    queryKey: ["/api/cms/content"],
+    queryFn: async () => {
+      const res = await fetch("/api/cms/content", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const cmsBySection = new Map<string, any>(
+    Array.isArray(cmsContents) ? cmsContents.map((c: any) => [c.section, c]) : []
+  );
+
+  const aboutIpcr = cmsBySection.get("about_ipcr");
+  const aboutDg = cmsBySection.get("about_director");
+  const peaceInitiatives = cmsBySection.get("peace_initiatives");
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-50 to-white">
-      {/* Header with login link */}
-      <header className="bg-white shadow-sm py-4">
-        <div className="container mx-auto flex justify-between items-center px-4">
-          <div className="flex items-center space-x-2">
-            <img src={ipcr_logo} alt="IPCR Logo" className="h-16 w-16" />
-            <div>
-              <h1 className="text-xl font-bold text-blue-600">{t("home.header.institute")}</h1>
-              <p className="text-sm text-gray-500">{t("home.header.system")}</p>
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-white">
+      <header className="sticky top-0 z-40 border-b bg-white/70 backdrop-blur">
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <img src={ipcr_logo} alt="IPCR Logo" className="h-11 w-11 rounded-md" />
+            <div className="leading-tight">
+              <div className="text-base md:text-lg font-semibold text-slate-900">
+                {t("home.header.institute")}
+              </div>
+              <div className="text-xs md:text-sm text-slate-500">{t("home.header.system")}</div>
             </div>
           </div>
+
           <div className="flex items-center gap-3">
+            <div className="hidden md:flex items-center gap-2">
+              <Link href="/map">
+                <Button variant="ghost" className="gap-2">
+                  <MapPin className="h-4 w-4" />
+                  Map
+                </Button>
+              </Link>
+              <Link href="/report-incident">
+                <Button variant="ghost" className="gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  {t("home.hero.reportIncident")}
+                </Button>
+              </Link>
+            </div>
+
             <Select value={language} onValueChange={onLanguageChange}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-[170px]">
                 <SelectValue placeholder={t("settings.system.language")} />
               </SelectTrigger>
               <SelectContent>
@@ -42,239 +90,256 @@ export default function HomePage() {
             </Select>
 
             <Link href="/auth">
-              <Button variant="outline" className="flex items-center gap-2">
-                <UserCircle size={16} />
-                <span>{t("home.header.login")}</span>
+              <Button variant="outline" className="gap-2">
+                <UserCircle className="h-4 w-4" />
+                <span className="hidden sm:inline">{t("home.header.login")}</span>
+                <span className="sm:hidden">Login</span>
               </Button>
             </Link>
           </div>
         </div>
       </header>
 
-      {/* Hero section */}
-      <section className="py-12 px-4 md:py-20 bg-gradient-to-r from-blue-500 to-sky-400 text-white">
-        <div className="container mx-auto text-center">
-          <h1 className="text-4xl md:text-5xl font-bold mb-6">{t("home.hero.title")}</h1>
-          <p className="text-xl md:text-2xl max-w-3xl mx-auto mb-8">
-            {t("home.hero.subtitle")}
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-            <Link href="/report-incident">
-              <Button size="lg" className="bg-white text-blue-600 hover:bg-blue-50 w-full sm:w-auto">
-                {t("home.hero.reportIncident")} <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-            </Link>
-            <Link href="/report-by-voice">
-              <Button size="lg" variant="outline" className="border-2 border-white text-white hover:bg-white/10 w-full sm:w-auto">
-                <Mic className="mr-2 h-5 w-5" />
-                Report by Voice
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </section>
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-sky-500 to-cyan-400" />
+        <div className="absolute -top-16 -right-24 h-80 w-80 rounded-full bg-white/10 blur-2xl" />
+        <div className="absolute -bottom-24 -left-24 h-80 w-80 rounded-full bg-white/10 blur-2xl" />
 
-      {/* Main content sections */}
-      <section className="py-16 px-4 container mx-auto grid grid-cols-1 md:grid-cols-2 gap-10">
-        {/* About IPCR */}
-        <Card className="shadow-lg hover:shadow-xl transition-all">
-          <CardHeader className="bg-gradient-to-r from-blue-500 to-sky-400 text-white">
-            <CardTitle className="flex items-center gap-2">
-              <BookOpen className="h-6 w-6" />
-              {t("home.aboutIpcr.title")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-center mb-6">
-              <img src={ipcr_logo} alt="IPCR Logo" className="h-32" />
-            </div>
-            <p className="mb-4">
-              {t("home.aboutIpcr.p1")}
-            </p>
-            <p className="mb-4">
-              {t("home.aboutIpcr.p2")}
-            </p>
-            <Button variant="outline" className="mt-2 w-full">
-              {t("home.aboutIpcr.learnMore")} <ExternalLink className="ml-2 h-4 w-4" />
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* About the DG */}
-        <Card className="shadow-lg hover:shadow-xl transition-all">
-          <CardHeader className="bg-gradient-to-r from-blue-500 to-sky-400 text-white">
-            <CardTitle className="flex items-center gap-2">
-              <Coffee className="h-6 w-6" />
-              {t("home.aboutDg.title")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <div className="flex justify-center mb-6">
-              <img 
-                src={dg_image} 
-                alt="Director General" 
-                className="h-56 rounded-md shadow-md"
-              />
-            </div>
-            <h3 className="text-xl font-semibold mb-2">{t("home.aboutDg.name")}</h3>
-            <p className="text-gray-500 mb-2">{t("home.aboutDg.role")}</p>
-            <p className="mb-4">
-              {t("home.aboutDg.p")}
-            </p>
-            <Button variant="outline" className="mt-2 w-full">
-              {t("home.aboutDg.profile")} <ExternalLink className="ml-2 h-4 w-4" />
-            </Button>
-          </CardContent>
-        </Card>
-      </section>
-
-      {/* Report a Crisis & Peace Initiatives */}
-      <section className="py-12 px-4 bg-sky-50">
-        <div className="container mx-auto grid grid-cols-1 md:grid-cols-2 gap-10">
-          {/* Report a Crisis */}
-          <Card className="shadow-lg hover:shadow-xl transition-all">
-            <CardHeader className="bg-gradient-to-r from-red-500 to-amber-500 text-white">
-              <CardTitle className="flex items-center gap-2">
-                <AlertCircle className="h-6 w-6" />
-                {t("home.reportCrisis.title")}
-              </CardTitle>
-              <CardDescription className="text-white/80">
-                {t("home.reportCrisis.subtitle")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-6">
-              <p className="mb-4">
-                {t("home.reportCrisis.p1")}
+        <div className="relative container mx-auto px-4 py-14 md:py-20 text-white">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
+            <div className="lg:col-span-7">
+              <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs md:text-sm">
+                <ShieldCheck className="h-4 w-4" />
+                Early Warning • Early Response
+              </div>
+              <h1 className="mt-4 text-4xl md:text-6xl font-semibold tracking-tight">
+                {t("home.hero.title")}
+              </h1>
+              <p className="mt-5 text-base md:text-xl text-white/90 max-w-2xl">
+                {t("home.hero.subtitle")}
               </p>
-              <p className="mb-4">
-                {t("home.reportCrisis.p2")}
-              </p>
-              <div className="space-y-2">
+
+              <div className="mt-8 flex flex-col sm:flex-row gap-3">
                 <Link href="/report-incident">
-                  <Button className="w-full">{t("home.reportCrisis.reportOnline")}</Button>
-                </Link>
-                <Link href="/report-by-voice">
-                  <Button variant="outline" className="w-full gap-2">
-                    <Mic className="h-4 w-4" /> Report by Voice
+                  <Button size="lg" className="bg-white text-slate-900 hover:bg-white/90 w-full sm:w-auto">
+                    {t("home.hero.reportIncident")}
+                    <ArrowRight className="ml-2 h-5 w-5" />
                   </Button>
                 </Link>
-                <Button variant="outline" className="w-full">{t("home.reportCrisis.callHotline")}</Button>
-                <Button variant="outline" className="w-full">{t("home.reportCrisis.smsReporting")}</Button>
+                <Link href="/report-by-voice">
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="border-white/70 text-white hover:bg-white/10 w-full sm:w-auto"
+                  >
+                    <Mic className="mr-2 h-5 w-5" />
+                    Report by Voice
+                  </Button>
+                </Link>
+                <Link href="/map">
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="border-white/30 text-white hover:bg-white/10 w-full sm:w-auto"
+                  >
+                    <Globe className="mr-2 h-5 w-5" />
+                    View Map
+                  </Button>
+                </Link>
               </div>
+
+              <div className="mt-10 grid grid-cols-2 md:grid-cols-3 gap-3 max-w-xl">
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
+                  <div className="text-sm text-white/80">Coverage</div>
+                  <div className="text-2xl font-semibold">Nigeria</div>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4">
+                  <div className="text-sm text-white/80">Reporting</div>
+                  <div className="text-2xl font-semibold">Public + Official</div>
+                </div>
+                <div className="rounded-xl bg-white/10 border border-white/15 p-4 col-span-2 md:col-span-1">
+                  <div className="text-sm text-white/80">Response</div>
+                  <div className="text-2xl font-semibold">Coordinated</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-5">
+              <div className="rounded-2xl bg-white/10 border border-white/15 p-6 md:p-7">
+                <div className="text-sm text-white/80">Quick actions</div>
+                <div className="mt-4 grid gap-3">
+                  <Link href="/report-incident">
+                    <Card className="bg-white/10 border-white/15 hover:bg-white/15 transition-colors">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-white text-base flex items-center gap-2">
+                          <Sparkles className="h-4 w-4" />
+                          Report online
+                        </CardTitle>
+                        <CardDescription className="text-white/75">
+                          Submit an incident report without signing in
+                        </CardDescription>
+                      </CardHeader>
+                    </Card>
+                  </Link>
+                  <Link href="/report-by-voice">
+                    <Card className="bg-white/10 border-white/15 hover:bg-white/15 transition-colors">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-white text-base flex items-center gap-2">
+                          <Mic className="h-4 w-4" />
+                          Report by voice
+                        </CardTitle>
+                        <CardDescription className="text-white/75">
+                          Speak your report, we’ll transcribe it
+                        </CardDescription>
+                      </CardHeader>
+                    </Card>
+                  </Link>
+                  <Link href="/auth">
+                    <Card className="bg-white/10 border-white/15 hover:bg-white/15 transition-colors">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-white text-base flex items-center gap-2">
+                          <UserCircle className="h-4 w-4" />
+                          Official portal
+                        </CardTitle>
+                        <CardDescription className="text-white/75">
+                          Access analytics, review and response tools
+                        </CardDescription>
+                      </CardHeader>
+                    </Card>
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="container mx-auto px-4 py-14">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="border-slate-200/70 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BookOpen className="h-5 w-5 text-blue-600" />
+                {aboutIpcr?.title || t("home.aboutIpcr.title")}
+              </CardTitle>
+              <CardDescription>
+                Learn about IPCR and our role in peacebuilding
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <img src={ipcr_logo} alt="IPCR" className="h-14 w-14 rounded-md" />
+                <div className="text-xs text-slate-500">
+                  Institute for Peace and Conflict Resolution
+                </div>
+              </div>
+              <div className="text-sm text-slate-700 whitespace-pre-wrap">
+                {aboutIpcr?.isActive
+                  ? aboutIpcr.content
+                  : `${t("home.aboutIpcr.p1")}\n\n${t("home.aboutIpcr.p2")}`}
+              </div>
+              <Link href="/about-ipcr">
+                <Button variant="outline" className="w-full">
+                  {t("home.aboutIpcr.learnMore")}
+                  <ExternalLink className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
             </CardContent>
           </Card>
 
-          {/* Peace Initiatives */}
-          <Card className="shadow-lg hover:shadow-xl transition-all">
-            <CardHeader className="bg-gradient-to-r from-green-500 to-emerald-500 text-white">
+          <Card className="border-slate-200/70 shadow-sm">
+            <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <HeartHandshake className="h-6 w-6" />
-                {t("home.peaceInitiatives.title")}
+                <UserCircle className="h-5 w-5 text-blue-600" />
+                {aboutDg?.title || t("home.aboutDg.title")}
               </CardTitle>
-              <CardDescription className="text-white/80">
-                {t("home.peaceInitiatives.subtitle")}
+              <CardDescription>
+                Leadership and strategic direction
               </CardDescription>
             </CardHeader>
-            <CardContent className="pt-6">
-              <div className="space-y-4">
-                <div className="border-l-4 border-green-500 pl-4 py-2">
-                  <h3 className="font-medium">{t("home.peaceInitiatives.item1.title")}</h3>
-                  <p className="text-sm text-gray-600">
-                    {t("home.peaceInitiatives.item1.desc")}
-                  </p>
-                </div>
-                
-                <div className="border-l-4 border-green-500 pl-4 py-2">
-                  <h3 className="font-medium">{t("home.peaceInitiatives.item2.title")}</h3>
-                  <p className="text-sm text-gray-600">
-                    {t("home.peaceInitiatives.item2.desc")}
-                  </p>
-                </div>
-                
-                <div className="border-l-4 border-green-500 pl-4 py-2">
-                  <h3 className="font-medium">{t("home.peaceInitiatives.item3.title")}</h3>
-                  <p className="text-sm text-gray-600">
-                    {t("home.peaceInitiatives.item3.desc")}
-                  </p>
-                </div>
-                
-                <div className="border-l-4 border-green-500 pl-4 py-2">
-                  <h3 className="font-medium">{t("home.peaceInitiatives.item4.title")}</h3>
-                  <p className="text-sm text-gray-600">
-                    {t("home.peaceInitiatives.item4.desc")}
-                  </p>
-                </div>
+            <CardContent className="space-y-4">
+              <div className="flex justify-center">
+                <img
+                  src={(aboutDg?.imageUrl as string) || dg_image}
+                  alt="Director General"
+                  className="h-56 w-auto rounded-xl border bg-white object-cover shadow-sm"
+                />
               </div>
-              
-              <Button variant="outline" className="mt-6 w-full">
-                {t("home.peaceInitiatives.viewAll")} <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
+              <div className="text-sm text-slate-700 whitespace-pre-wrap">
+                {aboutDg?.isActive
+                  ? aboutDg.content
+                  : t("home.aboutDg.p")}
+              </div>
+              <Link href="/director-general">
+                <Button variant="outline" className="w-full">
+                  {t("home.aboutDg.profile")}
+                  <ExternalLink className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200/70 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <HeartHandshake className="h-5 w-5 text-emerald-600" />
+                {peaceInitiatives?.title || t("home.peaceInitiatives.title")}
+              </CardTitle>
+              <CardDescription>
+                Programs and initiatives that strengthen peace
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="text-sm text-slate-700 whitespace-pre-wrap">
+                {peaceInitiatives?.isActive
+                  ? peaceInitiatives.content
+                  : `${t("home.peaceInitiatives.item1.title")}: ${t("home.peaceInitiatives.item1.desc")}\n\n${t("home.peaceInitiatives.item2.title")}: ${t("home.peaceInitiatives.item2.desc")}`}
+              </div>
+              <Link href="/peace-initiatives">
+                <Button variant="outline" className="w-full">
+                  {t("home.peaceInitiatives.viewAll")}
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="bg-gray-900 text-white py-10 px-4">
-        <div className="container mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+      <footer className="border-t bg-slate-950 text-slate-200">
+        <div className="container mx-auto px-4 py-12">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div>
-              <h3 className="text-lg font-semibold mb-4">{t("home.footer.contact")}</h3>
-              <p className="text-gray-300 mb-2">Plot 496 Abogo Largema Street</p>
-              <p className="text-gray-300 mb-2">Central Business District</p>
-              <p className="text-gray-300 mb-2">Abuja, Nigeria</p>
-              <p className="text-gray-300">Email: info@ipcr.gov.ng</p>
-            </div>
-            
-            <div>
-              <h3 className="text-lg font-semibold mb-4">{t("home.footer.quickLinks")}</h3>
-              <ul className="space-y-2 text-gray-300">
-                <li><a href="#" className="hover:text-blue-300">{t("home.footer.home")}</a></li>
-                <li><a href="#" className="hover:text-blue-300">{t("home.footer.about")}</a></li>
-                <li><a href="#" className="hover:text-blue-300">{t("home.footer.research")}</a></li>
-                <li><a href="#" className="hover:text-blue-300">{t("home.footer.careers")}</a></li>
-              </ul>
-            </div>
-            
-            <div>
-              <h3 className="text-lg font-semibold mb-4">{t("home.footer.resources")}</h3>
-              <ul className="space-y-2 text-gray-300">
-                <li><Link href="/map" className="hover:text-blue-300">{t("home.footer.map")}</Link></li>
-                <li><a href="#" className="hover:text-blue-300">{t("home.footer.toolkit")}</a></li>
-                <li><a href="#" className="hover:text-blue-300">{t("home.footer.policy")}</a></li>
-                <li><a href="#" className="hover:text-blue-300">{t("home.footer.media")}</a></li>
-              </ul>
-            </div>
-            
-            <div>
-              <h3 className="text-lg font-semibold mb-4">{t("home.footer.connect")}</h3>
-              <div className="flex space-x-4 mb-4">
-                <a href="#" className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center hover:bg-blue-700">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z"/>
-                  </svg>
-                </a>
-                <a href="#" className="h-10 w-10 rounded-full bg-blue-800 flex items-center justify-center hover:bg-blue-900">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M9 8h-3v4h3v12h5v-12h3.642l.358-4h-4v-1.667c0-.955.192-1.333 1.115-1.333h2.885v-5h-3.808c-3.596 0-5.192 1.583-5.192 4.615v3.385z"/>
-                  </svg>
-                </a>
-                <a href="#" className="h-10 w-10 rounded-full bg-red-600 flex items-center justify-center hover:bg-red-700">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/>
-                  </svg>
-                </a>
+              <div className="flex items-center gap-3">
+                <img src={ipcr_logo} alt="IPCR" className="h-10 w-10 rounded-md" />
+                <div>
+                  <div className="font-semibold">{t("home.header.institute")}</div>
+                  <div className="text-sm text-slate-400">{t("home.header.system")}</div>
+                </div>
               </div>
-              <p className="text-gray-300 text-sm">{t("home.footer.newsletter")}</p>
-              <div className="mt-2">
-                <Button size="sm" className="bg-blue-600 hover:bg-blue-700">{t("home.footer.subscribe")}</Button>
+              <div className="mt-4 text-sm text-slate-400">
+                Plot 496 Abogo Largema Street, Central Business District, Abuja, Nigeria
+              </div>
+              <div className="mt-2 text-sm text-slate-400">Email: info@ipcr.gov.ng</div>
+            </div>
+
+            <div>
+              <div className="font-semibold mb-3">Resources</div>
+              <div className="grid gap-2 text-sm text-slate-400">
+                <Link href="/map" className="hover:text-white">Map</Link>
+                <Link href="/report-incident" className="hover:text-white">Report Incident</Link>
+                <Link href="/report-by-voice" className="hover:text-white">Report by Voice</Link>
               </div>
             </div>
-          </div>
-          
-          <div className="border-t border-gray-700 mt-8 pt-6 text-center text-gray-400 text-sm">
-            <p>© {new Date().getFullYear()} {t("home.header.institute")}. {t("home.footer.rights")}</p>
-            <p className="mt-1">Designed by <a href="https://afrinict.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">afrinict.com</a></p>
+
+            <div>
+              <div className="font-semibold mb-3">Official</div>
+              <div className="grid gap-2 text-sm text-slate-400">
+                <Link href="/auth" className="hover:text-white">Login</Link>
+                <span className="text-xs"> {new Date().getFullYear()} {t("home.header.institute")}</span>
+                <span className="text-xs">Designed by afrinict.com</span>
+              </div>
+            </div>
           </div>
         </div>
       </footer>

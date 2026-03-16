@@ -5,6 +5,9 @@ import { Toaster } from "@/components/ui/toaster";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth-page";
 import HomePage from "@/pages/home-page";
+import AboutIpcrPage from "@/pages/about-ipcr-page";
+import DirectorGeneralPage from "@/pages/director-general-page";
+import PeaceInitiativesPage from "@/pages/peace-initiatives-page";
 import PeaceTrackerDashboard from "@/pages/PeaceTrackerDashboard";
 import PeaceTrackerInternalDashboard from "@/pages/PeaceTrackerInternalDashboard";
 import CrisisPage from "@/pages/CrisisPage";
@@ -59,6 +62,9 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={HomePage} />
+      <Route path="/about-ipcr" component={AboutIpcrPage} />
+      <Route path="/director-general" component={DirectorGeneralPage} />
+      <Route path="/peace-initiatives" component={PeaceInitiativesPage} />
       <Route path="/auth" component={AuthPage} />
       <ProtectedRoute path="/incidents/:id" component={IncidentDetailPage} />
       <Route path="/incidents" component={CaseManagementPage} />
