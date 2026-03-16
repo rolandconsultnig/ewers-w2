@@ -18,7 +18,7 @@ const DATABASE_URL = process.env.DATABASE_URL || "postgresql://ewers_user:Samola
 
 async function getCurrentDatabaseSchema() {
   const pool = new Pool({
-    connectionString: DATABASE_URL,
+    connectionString: DATABASE_URL + "?sslmode=disable",
     ssl: false
   });
   
