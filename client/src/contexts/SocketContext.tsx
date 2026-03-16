@@ -140,6 +140,12 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   }, [socket]);
 
   useEffect(() => {
+    if (!user?.id) {
+      setSocket(null);
+      setIsConnected(false);
+      return;
+    }
+
     // In dev, Vite proxies /socket.io to the API server; use same origin so proxy is used
     const socketUrl =
       typeof import.meta !== "undefined" && import.meta.env?.VITE_API_ORIGIN
@@ -147,9 +153,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         : window.location.origin;
     const s = io(socketUrl, {
       path: "/socket.io",
-      auth: user
-        ? { userId: user.id, username: user.username }
-        : {},
+      auth: { userId: user.id, username: user.username },
       transports: ["polling", "websocket"],
       reconnectionAttempts: 5,
       reconnectionDelay: 2000,
@@ -167,7 +171,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
     setSocket(s);
     return () => {
-      s.disconnect();
+      // Defer disconnect so React Strict Mode doesn't close the connection before it's established
+      setTimeout(() => s.disconnect(), 50);
     };
   }, [user?.id, user?.username]);
 

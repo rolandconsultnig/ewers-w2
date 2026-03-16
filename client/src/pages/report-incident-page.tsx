@@ -76,16 +76,11 @@ export default function ReportIncidentPage() {
         location: data.location,
         region: data.region,
         category: data.category,
-        status: "pending",
-        reportedAt: new Date().toISOString(),
-        locationMetadata: { coordinates: data.location, region: data.region },
-        verificationStatus: "unverified",
-        actors: { type: actorType, name: (data.actorName || "").trim() },
-        reporterInfo: {
-          name: (data.contactName || "").trim(),
-          email: (data.contactEmail && data.contactEmail.trim()) || "",
-          phone: (data.contactPhone || "").trim(),
-        },
+        actorType: actorType,
+        actorName: (data.actorName || "").trim(),
+        contactName: (data.contactName || "").trim(),
+        contactEmail: (data.contactEmail && data.contactEmail.trim()) || "",
+        contactPhone: (data.contactPhone || "").trim(),
       };
       const res = await fetch("/api/public/incidents", {
         method: "POST",

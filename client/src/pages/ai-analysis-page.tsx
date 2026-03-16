@@ -980,119 +980,286 @@ export default function AiAnalysisPage() {
 function ConflictNlpTab({ toast }: { toast: (t: any) => void }) {
   const [text, setText] = useState("");
   const [statement, setStatement] = useState("");
+  const [extractText, setExtractText] = useState("");
   const [text1, setText1] = useState("");
   const [text2, setText2] = useState("");
   const [result, setResult] = useState<any>(null);
+  const [resultLabel, setResultLabel] = useState<string>("");
   const [loading, setLoading] = useState(false);
-  const run = async (endpoint: string, body: any) => {
+
+  const run = async (label: string, endpoint: string, body: Record<string, unknown>) => {
     setLoading(true);
+    setResult(null);
+    setResultLabel("");
     try {
       const res = await apiRequest("POST", endpoint, body);
       const data = await res.json();
       setResult(data);
+      setResultLabel(label);
       toast({ title: "Analysis complete" });
     } catch (e) {
-      toast({ title: "Error", description: e instanceof Error ? e.message : "Failed", variant: "destructive" });
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Request failed", variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
+
+  const renderResultSummary = () => {
+    if (!result || !resultLabel) return null;
+    if (resultLabel === "Analyze Conflict" && result.riskLevel) {
+      return (
+        <div className="mb-3 p-3 rounded-md bg-background border">
+          <p className="text-sm font-medium">Risk level: <Badge variant={result.riskLevel === "critical" ? "destructive" : result.riskLevel === "high" ? "destructive" : "secondary"}>{result.riskLevel}</Badge></p>
+          <p className="text-xs text-muted-foreground mt-1">Conflict score: {result.conflictScore ?? "—"} / Peace score: {result.peaceScore ?? "—"}</p>
+          {result.keywords?.length > 0 && <p className="text-xs mt-1">Keywords: {result.keywords.slice(0, 8).join(", ")}{result.keywords.length > 8 ? "…" : ""}</p>}
+        </div>
+      );
+    }
+    if (resultLabel === "Screen Statement" && result.recommendation) {
+      return (
+        <div className="mb-3 p-3 rounded-md bg-background border">
+          <p className="text-sm font-medium">Recommendation: <Badge>{result.recommendation}</Badge></p>
+          <p className="text-xs text-muted-foreground mt-1">Confidence: {result.confidence ?? "—"}%</p>
+        </div>
+      );
+    }
+    if (resultLabel === "Similarity" && typeof result.similarity === "number") {
+      return (
+        <div className="mb-3 p-3 rounded-md bg-background border">
+          <p className="text-sm font-medium">Similarity: {Math.round((result.similarity ?? 0) * 100)}%</p>
+          <p className="text-xs text-muted-foreground">{result.isDuplicate ? "Likely duplicate" : "Different content"}</p>
+        </div>
+      );
+    }
+    if (resultLabel === "Extract Events" && Array.isArray(result)) {
+      return (
+        <div className="mb-3 p-3 rounded-md bg-background border">
+          <p className="text-sm font-medium">Extracted events: {result.length}</p>
+        </div>
+      );
+    }
+    if (resultLabel === "Web Scrape" && result.message) {
+      return (
+        <div className="mb-3 p-3 rounded-md bg-background border">
+          <p className="text-sm font-medium">{result.message}</p>
+          <p className="text-xs text-muted-foreground">Status: {result.status ?? "—"}</p>
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Conflict NLP Tools</CardTitle>
-        <CardDescription>Analyze text for conflict indicators, screen statements, extract events, and compare similarity</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div>
-          <label className="text-sm font-medium">Analyze Conflict</label>
-          <Textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste text to analyze for conflict indicators..." className="mt-1 min-h-[80px]" />
-          <Button className="mt-2" onClick={() => run("/api/ai/analyze-conflict", { text })} disabled={!text.trim() || loading}>Analyze</Button>
-        </div>
-        <div>
-          <label className="text-sm font-medium">Screen Statement</label>
-          <Textarea value={statement} onChange={(e) => setStatement(e.target.value)} placeholder="Statement to screen for conflict content..." className="mt-1 min-h-[80px]" />
-          <Button className="mt-2" onClick={() => run("/api/ai/screen-statement", { statement })} disabled={!statement.trim() || loading}>Screen</Button>
-        </div>
-        <div>
-          <label className="text-sm font-medium">Calculate Similarity (duplicate detection)</label>
-          <div className="grid grid-cols-2 gap-2 mt-1">
-            <Input value={text1} onChange={(e) => setText1(e.target.value)} placeholder="Text 1" />
-            <Input value={text2} onChange={(e) => setText2(e.target.value)} placeholder="Text 2" />
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Conflict NLP</CardTitle>
+          <CardDescription>Analyze text for conflict indicators, screen statements, extract events, and compare similarity.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">Analyze Conflict</h4>
+              <Textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste text to analyze for conflict indicators…" className="min-h-[100px]" />
+              <Button onClick={() => run("Analyze Conflict", "/api/ai/analyze-conflict", { text })} disabled={!text.trim() || loading}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}Analyze
+              </Button>
+            </div>
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">Screen Statement</h4>
+              <Textarea value={statement} onChange={(e) => setStatement(e.target.value)} placeholder="Statement to screen for conflict content…" className="min-h-[100px]" />
+              <Button onClick={() => run("Screen Statement", "/api/ai/screen-statement", { statement })} disabled={!statement.trim() || loading}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}Screen
+              </Button>
+            </div>
           </div>
-          <Button className="mt-2" onClick={() => run("/api/ai/calculate-similarity", { text1, text2 })} disabled={!text1.trim() || !text2.trim() || loading}>Compare</Button>
-        </div>
-        <div>
-          <Button variant="outline" onClick={() => run("/api/ai/scrape-web", {})} disabled={loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Start Web Scrape
-          </Button>
-        </div>
-        {result && (
-          <div className="border rounded-lg p-4 bg-muted/30">
-            <pre className="text-sm overflow-auto max-h-64">{JSON.stringify(result, null, 2)}</pre>
+
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold">Extract Conflict Events</h4>
+            <Textarea value={extractText} onChange={(e) => setExtractText(e.target.value)} placeholder="Paste text to extract conflict events from…" className="min-h-[80px]" />
+            <Button onClick={() => run("Extract Events", "/api/ai/extract-events", { text: extractText })} disabled={!extractText.trim() || loading}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}Extract Events
+            </Button>
           </div>
-        )}
-      </CardContent>
-    </Card>
+
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold">Similarity (duplicate detection)</h4>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Input value={text1} onChange={(e) => setText1(e.target.value)} placeholder="Text 1" />
+              <Input value={text2} onChange={(e) => setText2(e.target.value)} placeholder="Text 2" />
+            </div>
+            <Button onClick={() => run("Similarity", "/api/ai/calculate-similarity", { text1, text2 })} disabled={!text1.trim() || !text2.trim() || loading}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}Compare
+            </Button>
+          </div>
+
+          <div className="pt-2 border-t">
+            <h4 className="text-sm font-semibold mb-2">Web Scrape</h4>
+            <p className="text-xs text-muted-foreground mb-2">Start a background scrape of configured sources (admin/analyst only).</p>
+            <Button variant="outline" onClick={() => run("Web Scrape", "/api/ai/scrape-web", {})} disabled={loading}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}Start Web Scrape
+            </Button>
+          </div>
+
+          {result != null && (
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{resultLabel} — Result</p>
+              {renderResultSummary()}
+              <details className="mt-2">
+                <summary className="text-sm cursor-pointer text-muted-foreground">Show full JSON</summary>
+                <pre className="text-xs overflow-auto max-h-48 mt-2 p-2 bg-background rounded border">{JSON.stringify(result, null, 2)}</pre>
+              </details>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
+
+const NLP_TOOL_LABELS: Record<string, string> = {
+  sentiment: "Sentiment",
+  keywords: "Keywords",
+  classify: "Classification",
+  summarize: "Summarize",
+  entities: "Entities",
+};
 
 function NlpUtilsTab({ toast }: { toast: (t: any) => void }) {
   const [text, setText] = useState("");
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [tool, setTool] = useState<"sentiment"|"keywords"|"classify"|"summarize"|"entities">("sentiment");
+  const [tool, setTool] = useState<"sentiment" | "keywords" | "classify" | "summarize" | "entities">("sentiment");
+
   const run = async () => {
     if (!text.trim()) return;
     setLoading(true);
+    setResult(null);
     try {
       const endpoint = `/api/nlp/${tool}`;
-      const body = tool === "summarize" ? { text, maxLength: 200 } : tool === "keywords" ? { text, maxResults: 10 } : tool === "classify" ? { text, maxResults: 3 } : { text };
+      const body =
+        tool === "summarize"
+          ? { text, maxLength: 200 }
+          : tool === "keywords"
+            ? { text, maxResults: 10 }
+            : tool === "classify"
+              ? { text, maxResults: 3 }
+              : { text };
       const res = await apiRequest("POST", endpoint, body);
       const data = await res.json();
       setResult(data);
       toast({ title: "Analysis complete" });
     } catch (e) {
-      toast({ title: "Error", description: e instanceof Error ? e.message : "Failed", variant: "destructive" });
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Request failed", variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
+
+  const renderNlpSummary = () => {
+    if (!result) return null;
+    if (tool === "sentiment" && (result.label != null || result.score != null)) {
+      return (
+        <div className="mb-3 p-3 rounded-md bg-background border space-y-1">
+          <p className="text-sm font-medium">Sentiment: <Badge variant="secondary">{result.label ?? "—"}</Badge></p>
+          <p className="text-xs text-muted-foreground">Score: {typeof result.score === "number" ? result.score.toFixed(2) : result.score ?? "—"} · Confidence: {result.confidence ?? "—"}</p>
+        </div>
+      );
+    }
+    if (tool === "keywords" && Array.isArray(result.keywords)) {
+      return (
+        <div className="mb-3 p-3 rounded-md bg-background border">
+          <p className="text-sm font-medium mb-1">Top keywords ({result.keywords.length})</p>
+          <p className="text-xs text-muted-foreground">{result.keywords.slice(0, 12).map((k: { text?: string }) => k?.text ?? k).join(", ")}{result.keywords.length > 12 ? "…" : ""}</p>
+        </div>
+      );
+    }
+    if (tool === "keywords" && Array.isArray(result)) {
+      return (
+        <div className="mb-3 p-3 rounded-md bg-background border">
+          <p className="text-sm font-medium mb-1">Keywords ({result.length})</p>
+          <p className="text-xs text-muted-foreground">{result.slice(0, 12).map((k: { text?: string }) => k?.text ?? k).join(", ")}{result.length > 12 ? "…" : ""}</p>
+        </div>
+      );
+    }
+    if (tool === "classify" && (Array.isArray(result.categories) || Array.isArray(result))) {
+      const cats = result.categories ?? result;
+      return (
+        <div className="mb-3 p-3 rounded-md bg-background border">
+          <p className="text-sm font-medium mb-1">Categories</p>
+          <ul className="text-xs text-muted-foreground list-disc list-inside">
+            {cats.slice(0, 5).map((c: { category?: string; confidence?: number }, i: number) => (
+              <li key={i}>{c?.category ?? c} {c?.confidence != null ? `(${Math.round(c.confidence * 100)}%)` : ""}</li>
+            ))}
+          </ul>
+        </div>
+      );
+    }
+    if (tool === "summarize" && (result.summary != null || typeof result === "string")) {
+      const summary = result.summary ?? result;
+      return (
+        <div className="mb-3 p-3 rounded-md bg-background border">
+          <p className="text-sm font-medium mb-1">Summary</p>
+          <p className="text-sm text-muted-foreground">{typeof summary === "string" ? summary : String(summary)}</p>
+        </div>
+      );
+    }
+    if (tool === "entities" && (Array.isArray(result.entities) || Array.isArray(result))) {
+      const ents = result.entities ?? result;
+      return (
+        <div className="mb-3 p-3 rounded-md bg-background border">
+          <p className="text-sm font-medium mb-1">Entities ({ents.length})</p>
+          <p className="text-xs text-muted-foreground">{ents.slice(0, 10).map((e: { text?: string; type?: string }) => `${e?.text ?? e} (${e?.type ?? "—"})`).join(", ")}{ents.length > 10 ? "…" : ""}</p>
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>NLP Utilities</CardTitle>
-        <CardDescription>Sentiment, keywords, classification, summarization, and entity extraction</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <label className="text-sm font-medium">Tool</label>
-          <Select value={tool} onValueChange={(v: any) => setTool(v)}>
-            <SelectTrigger className="w-48 mt-1">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="sentiment">Sentiment</SelectItem>
-              <SelectItem value="keywords">Keywords</SelectItem>
-              <SelectItem value="classify">Classify</SelectItem>
-              <SelectItem value="summarize">Summarize</SelectItem>
-              <SelectItem value="entities">Entities</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <label className="text-sm font-medium">Text</label>
-          <Textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Enter text to analyze..." className="mt-1 min-h-[100px]" />
-        </div>
-        <Button onClick={run} disabled={!text.trim() || loading}>
-          {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Run {tool}
-        </Button>
-        {result && (
-          <div className="border rounded-lg p-4 bg-muted/30">
-            <pre className="text-sm overflow-auto max-h-64">{JSON.stringify(result, null, 2)}</pre>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>NLP Utilities</CardTitle>
+          <CardDescription>Sentiment analysis, keyword extraction, text classification, summarization, and named entity recognition.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Tool</label>
+            <Select value={tool} onValueChange={(v: "sentiment" | "keywords" | "classify" | "summarize" | "entities") => { setTool(v); setResult(null); }}>
+              <SelectTrigger className="w-full max-w-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sentiment">Sentiment</SelectItem>
+                <SelectItem value="keywords">Keywords</SelectItem>
+                <SelectItem value="classify">Classify</SelectItem>
+                <SelectItem value="summarize">Summarize</SelectItem>
+                <SelectItem value="entities">Entities</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-        )}
-      </CardContent>
-    </Card>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Input text</label>
+            <Textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Enter text to analyze…" className="min-h-[120px]" />
+          </div>
+          <Button onClick={run} disabled={!text.trim() || loading}>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            Run {NLP_TOOL_LABELS[tool] ?? tool}
+          </Button>
+
+          {result != null && (
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{NLP_TOOL_LABELS[tool]} — Result</p>
+              {renderNlpSummary()}
+              <details className="mt-2">
+                <summary className="text-sm cursor-pointer text-muted-foreground">Show full JSON</summary>
+                <pre className="text-xs overflow-auto max-h-48 mt-2 p-2 bg-background rounded border">{JSON.stringify(result, null, 2)}</pre>
+              </details>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

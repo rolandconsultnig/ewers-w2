@@ -25,15 +25,18 @@ export default function CrisisPage() {
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  const { data: incidents = [], isLoading } = useQuery<Incident[]>({
-    queryKey: ["/api/crises"],
+  const { data: incidents = [], isLoading, error } = useQuery<Incident[]>({
+    queryKey: ["/api/incidents"],
   });
 
-  const filtered = incidents.filter((i) => {
+  const filtered = (Array.isArray(incidents) ? incidents : []).filter((i) => {
+    const title = (i?.title ?? "").toString();
+    const description = (i?.description ?? "").toString();
+    const location = (i?.location ?? "").toString();
     const matchesSearch =
-      i.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      i.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      i.location.toLowerCase().includes(searchTerm.toLowerCase());
+      title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      location.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || i.status === statusFilter;
     const matchesSeverity = severityFilter === "all" || i.severity === severityFilter;
     return matchesSearch && matchesStatus && matchesSeverity;
@@ -92,9 +95,15 @@ export default function CrisisPage() {
               <div className="flex justify-center py-12">
                 <LoadingSpinner size="lg" />
               </div>
+            ) : error ? (
+              <div className="text-center py-12 text-destructive">
+                Failed to load conflict reports. Please try again.
+              </div>
             ) : filtered.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
-                No conflict reports match your filters.
+                {incidents.length === 0
+                  ? "No conflict reports yet."
+                  : "No conflict reports match your filters."}
               </div>
             ) : (
               <div className="space-y-4">
@@ -127,16 +136,18 @@ export default function CrisisPage() {
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
-                            {conflict.description}
+                            {(conflict.description ?? "").toString() || "—"}
                           </p>
                           <div className="flex items-center gap-4 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <MapPin className="h-3 w-3" />
-                              {conflict.location}
+                              {(conflict.location ?? "").toString() || "—"}
                             </span>
                             <span className="flex items-center gap-1">
                               <Calendar className="h-3 w-3" />
-                              {new Date(conflict.reportedAt).toLocaleDateString()}
+                              {conflict.reportedAt
+                                ? new Date(conflict.reportedAt).toLocaleDateString()
+                                : "—"}
                             </span>
                           </div>
                         </div>
