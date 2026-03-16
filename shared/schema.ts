@@ -991,3 +991,27 @@ export const insertCallParticipantSchema = createInsertSchema(callParticipants).
 
 export type InsertCallParticipant = z.infer<typeof insertCallParticipantSchema>;
 export type CallParticipant = typeof callParticipants.$inferSelect;
+
+// CMS Content for Landing Page
+export const cmsContent = pgTable("cms_content", {
+  id: serial("id").notNull().primaryKey(),
+  section: text("section").notNull().unique(), // 'about_ipcr', 'about_director', 'peace_initiatives'
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  imageUrl: text("image_url"),
+  lastUpdatedBy: integer("last_updated_by").references(() => users.id),
+  lastUpdatedAt: timestamp("last_updated_at").notNull().defaultNow(),
+  isActive: boolean("is_active").default(true),
+});
+
+export const insertCmsContentSchema = createInsertSchema(cmsContent).pick({
+  section: true,
+  title: true,
+  content: true,
+  imageUrl: true,
+  lastUpdatedBy: true,
+  isActive: true,
+});
+
+export type InsertCmsContent = z.infer<typeof insertCmsContentSchema>;
+export type CmsContent = typeof cmsContent.$inferSelect;

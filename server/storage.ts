@@ -1,4 +1,4 @@
-import { users, dataSources, collectedData, processedData, incidents, alerts, responseActivities, responseTeams, riskIndicators, riskAnalyses, responsePlans, feedbacks, reports, settings, accessLogs, apiKeys, webhooks, cases, caseNotes, incidentDiscussions, conversations, conversationParticipants, messages, messageAttachments, callSessions, callParticipants, conversationKeys } from "@shared/schema";
+import { users, dataSources, collectedData, processedData, incidents, alerts, responseActivities, responseTeams, riskIndicators, riskAnalyses, responsePlans, feedbacks, reports, settings, accessLogs, apiKeys, webhooks, cases, caseNotes, incidentDiscussions, conversations, conversationParticipants, messages, messageAttachments, callSessions, callParticipants, conversationKeys, cmsContent } from "@shared/schema";
 import type { 
   User, InsertUser, 
   DataSource, InsertDataSource, 
@@ -26,7 +26,8 @@ import type {
   MessageAttachment, InsertMessageAttachment,
   CallSession, InsertCallSession,
   CallParticipant, InsertCallParticipant,
-  ConversationKey, InsertConversationKey
+  ConversationKey, InsertConversationKey,
+  CmsContent, InsertCmsContent
 } from "@shared/schema";
 import session from "express-session";
 import { db, pool } from "./db";
@@ -199,6 +200,13 @@ export interface IStorage {
   endCallSession(callSessionId: number): Promise<CallSession>;
   addCallParticipant(participant: InsertCallParticipant): Promise<CallParticipant>;
   leaveCallParticipant(callSessionId: number, userId: number): Promise<CallParticipant | undefined>;
+
+  // CMS methods
+  getCmsContents(): Promise<CmsContent[]>;
+  getCmsContentBySection(section: string): Promise<CmsContent | undefined>;
+  createCmsContent(content: InsertCmsContent): Promise<CmsContent>;
+  updateCmsContent(section: string, content: Partial<CmsContent>): Promise<CmsContent>;
+  deleteCmsContent(section: string): Promise<boolean>;
 
   // Session store
   sessionStore: any;
@@ -1040,6 +1048,32 @@ export class DatabaseStorage implements IStorage {
   async createAccessLog(log: InsertAccessLog): Promise<AccessLog> {
     const [row] = await db.insert(accessLogs).values(log).returning();
     return row;
+  }
+
+  // CMS methods
+  async getCmsContents(): Promise<CmsContent[]> {
+    return db.select().from(cmsContent).orderBy(cmsContent.section);
+  }
+
+  async getCmsContentBySection(section: string): Promise<CmsContent | undefined> {
+    const [row] = await db.select().from(cmsContent).where(eq(cmsContent.section, section));
+    return row;
+  }
+
+  async createCmsContent(content: InsertCmsContent): Promise<CmsContent> {
+    const [row] = await db.insert(cmsContent).values(content).returning();
+    return row;
+  }
+
+  async updateCmsContent(section: string, data: Partial<CmsContent>): Promise<CmsContent> {
+    const [row] = await db.update(cmsContent).set(data).where(eq(cmsContent.section, section)).returning();
+    if (!row) throw new Error(`CMS content with section ${section} not found`);
+    return row;
+  }
+
+  async deleteCmsContent(section: string): Promise<boolean> {
+    const result = await db.delete(cmsContent).where(eq(cmsContent.section, section)).returning();
+    return result.length > 0;
   }
 }
 

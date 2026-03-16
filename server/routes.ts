@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
+import { registerCmsRoutes } from "./routes/cms";
 import { z } from "zod";
 import {
   insertDataSourceSchema,
@@ -90,6 +91,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       version: "1.0.0"
     });
   });
+
+  // Register CMS routes
+  registerCmsRoutes(app);
 
   // Debug endpoint to diagnose incident count discrepancy
   app.get("/api/debug/incident-count", async (_req, res) => {

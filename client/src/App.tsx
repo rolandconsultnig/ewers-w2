@@ -16,6 +16,7 @@ import VisualizationPage from "@/pages/visualization-page";
 import AlertsPage from "@/pages/alerts-page-new";
 import CaseManagementPage from "@/pages/case-management-page";
 import UserManagementPage from "@/pages/user-management-page";
+import CmsManagementPage from "@/pages/cms-management-page";
 import IntegrationsPage from "@/pages/integrations-page";
 import ReportingPage from "@/pages/reporting-page";
 import ResponsePlansPage from "./pages/response-plans-page";
@@ -120,6 +121,7 @@ function Router() {
       <RoleProtectedRoute path="/audit-logs" component={AuditLogsPage} allowedRoles={["admin"]} />
       <RoleProtectedRoute path="/enterprise-settings" component={EnterpriseSettingsPage} allowedRoles={["admin"]} />
       <RoleProtectedRoute path="/user-management" component={UserManagementPage} allowedRoles={["admin"]} />
+      <RoleProtectedRoute path="/cms" component={CmsManagementPage} allowedRoles={["admin"]} />
       <ProtectedRoute path="/integrations" component={IntegrationsPage} />
       <ProtectedRoute path="/reporting" component={ReportingPage} />
       <ProtectedRoute path="/settings" component={SettingsPage} />
