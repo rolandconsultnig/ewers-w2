@@ -15,6 +15,7 @@ export const users = pgTable("users", {
   position: text("position"),
   phoneNumber: text("phone_number"),
   email: text("email"),
+  responderAgency: text("responder_agency"), // police, army, dss, immigration, customs, nia, navy, air_force, other
   active: boolean("active").default(true),
   lastLogin: timestamp("last_login"),
   avatar: text("avatar"),
@@ -31,6 +32,7 @@ export const insertUserSchema = createInsertSchema(users).pick({
   position: true,
   phoneNumber: true,
   email: true,
+  responderAgency: true,
   active: true,
   avatar: true,
 });
@@ -233,6 +235,28 @@ export const insertIncidentDiscussionSchema = createInsertSchema(incidentDiscuss
 
 export type InsertIncidentDiscussion = z.infer<typeof insertIncidentDiscussionSchema>;
 export type IncidentDiscussion = typeof incidentDiscussions.$inferSelect;
+
+// Actionable incident dispatches (one incident -> many responder agencies)
+export const incidentDispatches = pgTable("incident_dispatches", {
+  id: serial("id").notNull().primaryKey(),
+  incidentId: integer("incident_id").notNull().references(() => incidents.id),
+  agency: text("agency").notNull(), // police, army, etc
+  status: text("status").notNull().default("sent"), // sent, acknowledged, resolved, closed
+  comment: text("comment"),
+  dispatchedBy: integer("dispatched_by").references(() => users.id),
+  dispatchedAt: timestamp("dispatched_at").notNull().defaultNow(),
+});
+
+export const insertIncidentDispatchSchema = createInsertSchema(incidentDispatches).pick({
+  incidentId: true,
+  agency: true,
+  status: true,
+  comment: true,
+  dispatchedBy: true,
+});
+
+export type InsertIncidentDispatch = z.infer<typeof insertIncidentDispatchSchema>;
+export type IncidentDispatch = typeof incidentDispatches.$inferSelect;
 
 // Case Management - Cases
 export const cases = pgTable("cases", {

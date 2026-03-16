@@ -21,12 +21,35 @@ const routeActionSchema = z.object({
 
 const commentSchema = z.object({ comment: z.string().min(1) });
 
+const dispatchAgenciesSchema = z.object({
+  agencies: z.array(z.string().min(1)).min(1),
+  comment: z.string().optional(),
+});
+
 function isSupervisorOrAbove(user: SelectUser): boolean {
   return user.role === "admin" || (user as any).securityLevel >= 5;
 }
 
 function isCoordinatorOrAbove(user: SelectUser): boolean {
   return user.role === "admin" || user.role === "coordinator" || (user as any).securityLevel >= 6;
+}
+
+function requireResponder(req: any, res: any): { user: SelectUser; agency: string } | null {
+  if (!req.isAuthenticated()) {
+    res.sendStatus(401);
+    return null;
+  }
+  const user = req.user as SelectUser;
+  if (user.role !== "responder") {
+    res.status(403).json({ error: "Responder access required" });
+    return null;
+  }
+  const agency = ((user as any).responderAgency as string | null | undefined)?.trim() || "";
+  if (!agency) {
+    res.status(403).json({ error: "Responder agency is not set for this account" });
+    return null;
+  }
+  return { user, agency };
 }
 
 /** Returns team IDs where user is in members (members is array of user ids or objects with id / userId) */
@@ -45,8 +68,43 @@ function getTeamIdsForUser(teams: { id: number; members: unknown }[], userId: nu
     })
     .map((t) => t.id);
 }
-
 export function setupResponderWorkflowRoutes(app: Router, storage: IStorage) {
+  // ——— Actionable incident dispatches (coordinator/admin) ———
+  app.post("/api/incidents/:id/dispatch-to-agencies", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const user = req.user as SelectUser;
+    if (!isCoordinatorOrAbove(user)) return res.status(403).json({ error: "Coordinator role required" });
+
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: "Invalid incident id" });
+
+    const parsed = dispatchAgenciesSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Invalid body", issues: parsed.error.issues });
+
+    try {
+      const incident = await storage.getIncident(id);
+      if (!incident) return res.status(404).json({ error: "Incident not found" });
+
+      const agencies = Array.from(new Set(parsed.data.agencies.map((a) => a.trim()).filter(Boolean)));
+      if (!agencies.length) return res.status(400).json({ error: "At least one agency is required" });
+
+      const rows = await storage.createIncidentDispatches(
+        agencies.map((agency) => ({
+          incidentId: id,
+          agency,
+          status: "sent",
+          comment: parsed.data.comment?.trim() || undefined,
+          dispatchedBy: user.id,
+        }))
+      );
+
+      return res.status(201).json({ dispatches: rows });
+    } catch (e) {
+      console.error("Error dispatching incident to agencies:", e);
+      return res.status(500).json({ error: "Failed to dispatch incident" });
+    }
+  });
+
   // ——— Comments ———
   app.get("/api/incidents/:id/comments", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
@@ -171,6 +229,22 @@ export function setupResponderWorkflowRoutes(app: Router, storage: IStorage) {
           responseType: respType,
         } as any);
 
+        // Create an actionable dispatch record for the assigned team's agency
+        try {
+          const team = await storage.getResponseTeam(teamId);
+          const agency = (team as any)?.agency?.trim() || "other";
+          await storage.createIncidentDispatches([
+            {
+              incidentId: id,
+              agency,
+              status: "sent",
+              dispatchedBy: user.id,
+            } as any,
+          ]);
+        } catch (e) {
+          console.warn("Failed to create incident dispatch record:", e);
+        }
+
         return res.json({
           message: "Approved and dispatched to responders",
           processingStatus: "dispatched",
@@ -195,9 +269,11 @@ export function setupResponderWorkflowRoutes(app: Router, storage: IStorage) {
 
   // ——— Responder portal: teams (for dropdowns and filters) ———
   app.get("/api/responders/teams", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const ctx = requireResponder(req, res);
+    if (!ctx) return;
     const category = typeof req.query.category === "string" ? req.query.category : null;
-    const agency = typeof req.query.agency === "string" ? req.query.agency.trim() || null : null;
+    const agencyQuery = typeof req.query.agency === "string" ? req.query.agency.trim() || null : null;
+    const agency = agencyQuery ?? ctx.agency;
     const valid = category === "kinetic" || category === "non_kinetic" || category === null;
     if (!valid) return res.status(400).json({ error: "category must be kinetic, non_kinetic, or omitted" });
     try {
@@ -212,26 +288,26 @@ export function setupResponderWorkflowRoutes(app: Router, storage: IStorage) {
 
   // ——— Responder portal: assignments (dispatched incidents + activities for kinetic/non_kinetic) ———
   app.get("/api/responders/assignments", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    const user = req.user as SelectUser;
+    const ctx = requireResponder(req, res);
+    if (!ctx) return;
+    const user = ctx.user;
     const type = typeof req.query.type === "string" ? req.query.type : null;
     if (type !== "kinetic" && type !== "non_kinetic") {
       return res.status(400).json({ error: "query type must be kinetic or non_kinetic" });
     }
     try {
-      const dispatched = await storage.getIncidentsByProcessingStatus("dispatched");
+      const dispatches = await storage.getIncidentDispatchesForAgency(ctx.agency);
+      const dispatchedIncidentIds = Array.from(new Set(dispatches.map((d) => d.incidentId)));
+      const dispatched = await storage.getIncidentsByIds(dispatchedIncidentIds);
       const activities = await storage.getResponseActivitiesFiltered({ responseType: type });
-      const incidentIds = new Set(activities.map((a) => a.incidentId).filter(Boolean) as number[]);
       const teams = await storage.getResponseTeams();
       const myTeamIds = getTeamIdsForUser(teams, user.id);
-      const isCoordinatorOrAdmin = isCoordinatorOrAbove(user);
 
       const byIncident = new Map<number, { incident: (typeof dispatched)[0]; activities: (typeof activities) }>();
       for (const inc of dispatched) {
-        if (!incidentIds.has(inc.id)) continue;
         const incActivities = activities.filter((a) => a.incidentId === inc.id);
         const visible =
-          isCoordinatorOrAdmin || incActivities.some((a) => a.assignedTo === user.id || (a.assignedTeamId != null && myTeamIds.includes(a.assignedTeamId)));
+          incActivities.some((a) => a.assignedTo === user.id || (a.assignedTeamId != null && myTeamIds.includes(a.assignedTeamId)));
         if (visible) {
           byIncident.set(inc.id, {
             incident: inc,

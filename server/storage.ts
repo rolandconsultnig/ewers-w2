@@ -1,10 +1,11 @@
-import { users, dataSources, collectedData, processedData, incidents, alerts, responseActivities, responseTeams, riskIndicators, riskAnalyses, responsePlans, feedbacks, reports, settings, accessLogs, apiKeys, webhooks, cases, caseNotes, incidentDiscussions, conversations, conversationParticipants, messages, messageAttachments, callSessions, callParticipants, conversationKeys, cmsContent, workflowTemplates, workflowStages, workflowTransitions, workflowInstances, workflowHistory } from "@shared/schema";
+import { users, dataSources, collectedData, processedData, incidents, alerts, responseActivities, responseTeams, riskIndicators, riskAnalyses, responsePlans, feedbacks, reports, settings, accessLogs, apiKeys, webhooks, cases, caseNotes, incidentDiscussions, incidentDispatches, conversations, conversationParticipants, messages, messageAttachments, callSessions, callParticipants, conversationKeys, cmsContent, workflowTemplates, workflowStages, workflowTransitions, workflowInstances, workflowHistory } from "@shared/schema";
 import type { 
   User, InsertUser, 
   DataSource, InsertDataSource, 
   CollectedData, InsertCollectedData,
   ProcessedData, InsertProcessedData,
   Incident, InsertIncident, 
+  IncidentDispatch, InsertIncidentDispatch,
   Case, InsertCase,
   CaseNote, InsertCaseNote,
   IncidentDiscussion, InsertIncidentDiscussion,
@@ -39,7 +40,7 @@ import type {
 } from "@shared/schema";
 import session from "express-session";
 import { db, pool } from "./db";
-import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, sql, inArray } from "drizzle-orm";
 import connectPg from "connect-pg-simple";
 
 const PostgresSessionStore = connectPg(session);
@@ -64,6 +65,7 @@ export interface IStorage {
   getIncidents(): Promise<Incident[]>;
   getIncidentsFiltered(filters: { state?: string; lga?: string; reportingMethod?: string }): Promise<Incident[]>;
   getIncident(id: number): Promise<Incident | undefined>;
+  getIncidentsByIds(ids: number[]): Promise<Incident[]>;
   getIncidentsByTitle(title: string): Promise<Incident[]>;
   getIncidentsByRegion(region: string): Promise<Incident[]>;
   getIncidentsByLocation(lat: number, lng: number, radiusKm?: number): Promise<Incident[]>;
@@ -103,6 +105,11 @@ export interface IStorage {
   // Incident discussion (responder workflow)
   getIncidentDiscussions(incidentId: number): Promise<IncidentDiscussion[]>;
   createIncidentDiscussion(data: InsertIncidentDiscussion): Promise<IncidentDiscussion>;
+
+  // Actionable incident dispatches (one incident -> many agencies)
+  getIncidentDispatchesForIncident(incidentId: number): Promise<IncidentDispatch[]>;
+  getIncidentDispatchesForAgency(agency: string): Promise<IncidentDispatch[]>;
+  createIncidentDispatches(dispatches: InsertIncidentDispatch[]): Promise<IncidentDispatch[]>;
 
   // Responder assignments (activities with optional filters)
   getResponseActivitiesFiltered(filters: { assignedTeamId?: number; incidentId?: number; responseType?: string }): Promise<ResponseActivity[]>;
@@ -527,6 +534,11 @@ export class DatabaseStorage implements IStorage {
     return incident;
   }
 
+  async getIncidentsByIds(ids: number[]): Promise<Incident[]> {
+    if (!ids.length) return [];
+    return db.select().from(incidents).where(inArray(incidents.id, ids));
+  }
+
   async getIncidentsByTitle(title: string): Promise<Incident[]> {
     const matchingIncidents = await db.select().from(incidents).where(eq(incidents.title, title));
     return matchingIncidents;
@@ -731,6 +743,28 @@ export class DatabaseStorage implements IStorage {
     const [row] = await db.insert(incidentDiscussions).values(data).returning();
     if (!row) throw new Error("Failed to create incident discussion");
     return row;
+  }
+
+  async getIncidentDispatchesForIncident(incidentId: number): Promise<IncidentDispatch[]> {
+    return db
+      .select()
+      .from(incidentDispatches)
+      .where(eq(incidentDispatches.incidentId, incidentId))
+      .orderBy(desc(incidentDispatches.dispatchedAt));
+  }
+
+  async getIncidentDispatchesForAgency(agency: string): Promise<IncidentDispatch[]> {
+    return db
+      .select()
+      .from(incidentDispatches)
+      .where(eq(incidentDispatches.agency, agency))
+      .orderBy(desc(incidentDispatches.dispatchedAt));
+  }
+
+  async createIncidentDispatches(dispatches: InsertIncidentDispatch[]): Promise<IncidentDispatch[]> {
+    if (!dispatches.length) return [];
+    const rows = await db.insert(incidentDispatches).values(dispatches).returning();
+    return rows;
   }
 
   async getResponseActivitiesFiltered(filters: { assignedTeamId?: number; incidentId?: number; responseType?: string }): Promise<ResponseActivity[]> {

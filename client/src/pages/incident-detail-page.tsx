@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   ArrowLeft,
   Send,
@@ -36,6 +37,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import type { Incident, User } from "@shared/schema";
+import { KINETIC_AGENCIES } from "@/lib/kinetic-agencies";
 
 type IncidentWithWorkflow = Incident & {
   processingStatus?: string;
@@ -86,6 +88,7 @@ export default function IncidentDetailPage() {
   const [dispatchTeamId, setDispatchTeamId] = useState<string>("");
   const [dispatchType, setDispatchType] = useState<"kinetic" | "non_kinetic" | "mixed">("non_kinetic");
   const [routeComment, setRouteComment] = useState("");
+  const [dispatchAgencies, setDispatchAgencies] = useState<string[]>([]);
 
   const { data: incident, isLoading: loadingIncident, error: incidentError } = useQuery<IncidentWithWorkflow>({
     queryKey: incidentId != null ? [`/api/incidents/${incidentId}`] : ["skip"],
@@ -106,12 +109,28 @@ export default function IncidentDetailPage() {
   });
 
   const { data: teams = [] } = useQuery<ResponseTeam[]>({
-    queryKey: ["/api/responders/teams"],
+    queryKey: ["/api/response-teams"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/responders/teams");
+      const res = await apiRequest("GET", "/api/response-teams");
       return res.json();
     },
     enabled: isCoordinatorOrAbove(user) && incidentId != null,
+  });
+
+  const dispatchAgenciesMutation = useMutation({
+    mutationFn: async () => {
+      if (incidentId == null) throw new Error("Missing incident id");
+      const res = await apiRequest("POST", `/api/incidents/${incidentId}/dispatch-to-agencies`, {
+        agencies: dispatchAgencies,
+        comment: routeComment.trim() || undefined,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Incident dispatched to agencies" });
+      setDispatchAgencies([]);
+    },
+    onError: (e: Error) => toast({ title: "Dispatch failed", description: e.message, variant: "destructive" }),
   });
 
   const addCommentMutation = useMutation({
@@ -350,6 +369,63 @@ export default function IncidentDetailPage() {
                     )}
                     Approve and dispatch
                   </Button>
+                </div>
+              )}
+
+              {isCoordinatorOrAbove(user) && incidentId != null && (
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">Actionable incident dispatch</p>
+                      <p className="text-xs text-muted-foreground">Send this incident to one or more responder agencies.</p>
+                    </div>
+                    <Button
+                      variant="default"
+                      onClick={() => dispatchAgenciesMutation.mutate()}
+                      disabled={dispatchAgencies.length === 0 || dispatchAgenciesMutation.isPending}
+                    >
+                      {dispatchAgenciesMutation.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="mr-2 h-4 w-4" />
+                      )}
+                      Send to agencies
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {KINETIC_AGENCIES.map((a) => {
+                      const checked = dispatchAgencies.includes(a.slug);
+                      return (
+                        <label key={a.slug} className="flex items-center gap-2 text-sm rounded-md border px-3 py-2">
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(v) => {
+                              const nextChecked = v === true;
+                              setDispatchAgencies((prev) => {
+                                if (nextChecked) return Array.from(new Set([...prev, a.slug]));
+                                return prev.filter((x) => x !== a.slug);
+                              });
+                            }}
+                          />
+                          <span>{a.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDispatchAgencies(KINETIC_AGENCIES.map((a) => a.slug))}
+                    >
+                      Select all
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setDispatchAgencies([])}>
+                      Clear
+                    </Button>
+                  </div>
                 </div>
               )}
 
