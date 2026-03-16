@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -46,6 +46,8 @@ import {
   Smile,
   Mic,
   MapPin,
+  Phone,
+  Video,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -265,6 +267,21 @@ export default function ChatPage() {
       unsubTypingStop();
     };
   }, [selectedConvo?.id, joinConversation, leaveConversation, onNewMessage, onTyping, onTypingStop, queryClient]);
+
+  const messagesWithDayBreaks = useMemo(() => {
+    const out: Array<{ kind: "day"; label: string } | { kind: "msg"; msg: Message }> = [];
+    let lastDayKey: string | null = null;
+    for (const item of messages) {
+      const d = new Date(item.createdAt);
+      const dayKey = format(d, "yyyy-MM-dd");
+      if (dayKey !== lastDayKey) {
+        out.push({ kind: "day", label: format(d, "EEE, MMM d") });
+        lastDayKey = dayKey;
+      }
+      out.push({ kind: "msg", msg: item });
+    }
+    return out;
+  }, [messages]);
 
   useEffect(() => {
     if (!socket || !selectedConvo) return;
@@ -590,7 +607,7 @@ export default function ChatPage() {
                     title="Start voice call"
                     onClick={() => setLocation(`/calls?conversationId=${selectedConvo.id}&type=voice`)}
                   >
-                    <span className="text-xs font-semibold">📞</span>
+                    <Phone className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -599,7 +616,7 @@ export default function ChatPage() {
                     title="Start video call"
                     onClick={() => setLocation(`/calls?conversationId=${selectedConvo.id}&type=video`)}
                   >
-                    <span className="text-xs font-semibold">🎥</span>
+                    <Video className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -620,27 +637,34 @@ export default function ChatPage() {
                     No messages yet. Say hello!
                   </div>
                 )}
-                {messages.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`flex ${m.senderId === user?.id ? "justify-end" : "justify-start"}`}
-                  >
-                    <div className="group flex items-end gap-1 max-w-[75%]">
-                      {m.senderId !== user?.id && (
-                        <Avatar className="h-6 w-6 shrink-0">
-                          <AvatarFallback className="text-[10px]">
-                            {(m.sender?.fullName || m.sender?.username || "?").slice(0, 1).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                      )}
-                      <div
-                        className={`rounded-2xl px-3 py-2 shadow-sm ${
-                          m.senderId === user?.id
-                            ? "bg-emerald-600 text-emerald-50 rounded-br-sm"
-                            : "bg-white text-foreground rounded-bl-sm"
-                        } ${editingMessageId === m.id ? "ring-2 ring-offset-2 ring-emerald-500" : ""}`}
-                      >
-                        {editingMessageId === m.id ? (
+                {messagesWithDayBreaks.map((item: { kind: "day"; label: string } | { kind: "msg"; msg: Message }, idx: number) =>
+                  item.kind === "day" ? (
+                    <div key={`day-${idx}`} className="flex justify-center py-2">
+                      <div className="px-3 py-1 rounded-full bg-black/30 text-slate-200 text-[11px] tracking-wide">
+                        {item.label}
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      key={item.msg.id}
+                      className={`flex ${item.msg.senderId === user?.id ? "justify-end" : "justify-start"}`}
+                    >
+                      <div className="group flex items-end gap-1 max-w-[78%]">
+                        {item.msg.senderId !== user?.id && (
+                          <Avatar className="h-6 w-6 shrink-0">
+                            <AvatarFallback className="text-[10px] bg-[#202c33] text-slate-100">
+                              {(item.msg.sender?.fullName || item.msg.sender?.username || "?").slice(0, 1).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                        )}
+                        <div
+                          className={`relative rounded-2xl px-3 py-2 shadow-sm ${
+                            item.msg.senderId === user?.id
+                              ? "bg-[#005c4b] text-emerald-50 rounded-br-sm"
+                              : "bg-[#202c33] text-slate-100 rounded-bl-sm"
+                          } ${editingMessageId === item.msg.id ? "ring-2 ring-offset-2 ring-emerald-500" : ""}`}
+                        >
+                        {editingMessageId === item.msg.id ? (
                           <div className="space-y-2">
                             <Input
                               value={editBody}
@@ -649,7 +673,7 @@ export default function ChatPage() {
                               autoFocus
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
-                                  if (editBody.trim()) editMessageMutation.mutate({ msgId: m.id, body: editBody.trim() });
+                                  if (editBody.trim()) editMessageMutation.mutate({ msgId: item.msg.id, body: editBody.trim() });
                                 }
                                 if (e.key === "Escape") {
                                   setEditingMessageId(null);
@@ -670,7 +694,7 @@ export default function ChatPage() {
                               </Button>
                               <Button
                                 size="sm"
-                                onClick={() => editBody.trim() && editMessageMutation.mutate({ msgId: m.id, body: editBody.trim() })}
+                                onClick={() => editBody.trim() && editMessageMutation.mutate({ msgId: item.msg.id, body: editBody.trim() })}
                                 disabled={!editBody.trim() || editMessageMutation.isPending}
                               >
                                 Save
@@ -680,12 +704,12 @@ export default function ChatPage() {
                         ) : (
                           <>
                             <p className="text-[11px] opacity-80 mb-1">
-                              {m.sender?.fullName || m.sender?.username || "Unknown"}
+                              {item.msg.sender?.fullName || item.msg.sender?.username || "Unknown"}
                             </p>
                             {/* Render replies, voice, location, and attachments in a WhatsApp-like way */}
-                            {m.body.startsWith("__VOICE__::") ? (
+                            {item.msg.body.startsWith("__VOICE__::") ? (
                               (() => {
-                                const parts = m.body.split("::");
+                                const parts = item.msg.body.split("::");
                                 const url = parts[1];
                                 return (
                                   <div className="space-y-1">
@@ -694,9 +718,9 @@ export default function ChatPage() {
                                   </div>
                                 );
                               })()
-                            ) : m.body.startsWith("__LOCATION__::") ? (
+                            ) : item.msg.body.startsWith("__LOCATION__::") ? (
                               (() => {
-                                const parts = m.body.split("::");
+                                const parts = item.msg.body.split("::");
                                 const lat = parts[1];
                                 const lng = parts[2];
                                 const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
@@ -705,15 +729,15 @@ export default function ChatPage() {
                                     href={mapUrl}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="text-xs underline text-emerald-600 hover:text-emerald-500"
+                                    className="text-xs underline text-emerald-300 hover:text-emerald-200"
                                   >
                                     📍 Location: {lat}, {lng}
                                   </a>
                                 );
                               })()
-                            ) : m.body.startsWith("__FILE__::") ? (
+                            ) : item.msg.body.startsWith("__FILE__::") ? (
                               (() => {
-                                const parts = m.body.split("::");
+                                const parts = item.msg.body.split("::");
                                 const url = parts[1];
                                 const name = parts[2] || "Attachment";
                                 const isImage = /\.(png|jpe?g|gif|webp)$/i.test(url || "");
@@ -739,9 +763,9 @@ export default function ChatPage() {
                                   </div>
                                 );
                               })()
-                            ) : m.body.startsWith("↩️ ") ? (
+                            ) : item.msg.body.startsWith("↩️ ") ? (
                               (() => {
-                                const [quotePart, restPart] = m.body.split("\n\n", 2);
+                                const [quotePart, restPart] = item.msg.body.split("\n\n", 2);
                                 return (
                                   <div className="space-y-1">
                                     <div className="border-l-2 border-emerald-300/80 pl-2 pr-1 py-1 bg-black/5 rounded-sm text-[10px] opacity-90">
@@ -754,18 +778,18 @@ export default function ChatPage() {
                                 );
                               })()
                             ) : (
-                              <p className="text-sm whitespace-pre-wrap break-words">{m.body}</p>
+                              <p className="text-sm whitespace-pre-wrap break-words">{item.msg.body}</p>
                             )}
                             <div className="flex items-center justify-between gap-2 mt-1 text-[11px] opacity-80">
                               <span>
-                                {format(new Date(m.createdAt), "HH:mm")}
-                                {m.editedAt && " (edited)"}
+                                {format(new Date(item.msg.createdAt), "HH:mm")}
+                                {item.msg.editedAt && " (edited)"}
                               </span>
                               <span className="flex items-center gap-1">
-                                {m.senderId === user?.id && (
+                                {item.msg.senderId === user?.id && (
                                   <>
                                     {(() => {
-                                      const status = computeMessageStatus(m);
+                                      const status = computeMessageStatus(item.msg);
                                       if (status === "read") {
                                         return <CheckCheck className="h-3 w-3 text-sky-300" />;
                                       }
@@ -779,7 +803,7 @@ export default function ChatPage() {
                                     })()}
                                   </>
                                 )}
-                                {m.senderId === user?.id && (
+                                {item.msg.senderId === user?.id && (
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <Button
@@ -793,15 +817,15 @@ export default function ChatPage() {
                                     <DropdownMenuContent align="end" className="w-44">
                                       <DropdownMenuItem
                                         onClick={() => {
-                                          setReplyTo(m);
+                                          setReplyTo(item.msg);
                                         }}
                                       >
                                         Reply
                                       </DropdownMenuItem>
                                       <DropdownMenuItem
                                         onClick={() => {
-                                          setEditingMessageId(m.id);
-                                          setEditBody(m.body);
+                                          setEditingMessageId(item.msg.id);
+                                          setEditBody(item.msg.body);
                                         }}
                                       >
                                         <Pencil className="h-3 w-3 mr-2" />
@@ -809,7 +833,7 @@ export default function ChatPage() {
                                       </DropdownMenuItem>
                                       <DropdownMenuItem
                                         className="text-destructive"
-                                        onClick={() => deleteMessageMutation.mutate(m.id)}
+                                        onClick={() => deleteMessageMutation.mutate(item.msg.id)}
                                       >
                                         <Trash2 className="h-3 w-3 mr-2" />
                                         Delete
@@ -824,7 +848,8 @@ export default function ChatPage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  )
+                )}
                 {typingUsers.size > 0 && (
                   <div className="flex justify-start">
                     <p className="text-xs text-muted-foreground italic">
