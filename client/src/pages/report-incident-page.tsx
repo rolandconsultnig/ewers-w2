@@ -2,7 +2,7 @@ import React from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
@@ -27,6 +27,8 @@ const publicIncidentSchema = z.object({
   description: z.string().min(10, "Please provide a short description (at least 10 characters)"),
   location: z.string().min(2, "Location is required (e.g. town or area)"),
   region: z.string().min(2, "Please select a region"),
+  state: z.string().optional(),
+  lga: z.string().optional(),
   category: z.enum([
     "violence",
     "protest",
@@ -57,6 +59,8 @@ export default function ReportIncidentPage() {
       description: "",
       location: "",
       region: "North Central",
+      state: "",
+      lga: "",
       category: "conflict",
       actorType: undefined,
       actorName: "",
@@ -75,6 +79,8 @@ export default function ReportIncidentPage() {
         description: data.description,
         location: data.location,
         region: data.region,
+        state: data.state || undefined,
+        lga: data.lga || undefined,
         category: data.category,
         actorType: actorType,
         actorName: (data.actorName || "").trim(),
@@ -131,6 +137,41 @@ export default function ReportIncidentPage() {
     "South West",
     "Federal Capital Territory"
   ];
+  const nigeriaRegionStates: Record<string, string[]> = {
+    "North Central": ["Benue", "Kogi", "Kwara", "Nasarawa", "Niger", "Plateau", "FCT"],
+    "North East": ["Adamawa", "Bauchi", "Borno", "Gombe", "Taraba", "Yobe"],
+    "North West": ["Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Sokoto", "Zamfara"],
+    "South East": ["Abia", "Anambra", "Ebonyi", "Enugu", "Imo"],
+    "South South": ["Akwa Ibom", "Bayelsa", "Cross River", "Delta", "Edo", "Rivers"],
+    "South West": ["Ekiti", "Lagos", "Ogun", "Ondo", "Osun", "Oyo"],
+    "Federal Capital Territory": ["FCT"],
+  };
+
+  const selectedRegion = form.watch("region");
+  const selectedState = form.watch("state");
+
+  React.useEffect(() => {
+    const allowedStates = nigeriaRegionStates[selectedRegion] ?? [];
+    if (selectedState && !allowedStates.includes(selectedState)) {
+      form.setValue("state", "", { shouldDirty: true, shouldValidate: true });
+    }
+  }, [selectedRegion, selectedState, form]);
+
+  // Prevent stale LGA when state changes.
+  React.useEffect(() => {
+    form.setValue("lga", "", { shouldDirty: true, shouldValidate: true });
+  }, [selectedState, form]);
+
+  const { data: lgaOptions = [], isLoading: loadingLgaOptions } = useQuery<string[]>({
+    queryKey: ["/api/public/lga-options", selectedState],
+    enabled: typeof selectedState === "string" && selectedState.trim().length > 0,
+    queryFn: async () => {
+      const state = selectedState ?? "";
+      const res = await fetch(`/api/public/lga-options?state=${encodeURIComponent(state)}`);
+      if (!res.ok) throw new Error("Failed to load LGA options");
+      return (await res.json()) as string[];
+    },
+  });
 
   const recognitionLocale = React.useMemo(() => {
     if (language === "ig") return "ig-NG";
@@ -298,6 +339,62 @@ export default function ReportIncidentPage() {
                                     {nigeriaRegions.map((region) => (
                                       <SelectItem key={region} value={region}>
                                         {region}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <FormField
+                            control={form.control}
+                            name="state"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>State</FormLabel>
+                                <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select a state" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {(nigeriaRegionStates[selectedRegion] ?? []).map((state) => (
+                                      <SelectItem key={state} value={state}>
+                                        {state}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name="lga"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>LGA</FormLabel>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  value={field.value ?? ""}
+                                  disabled={!selectedState || loadingLgaOptions}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder={selectedState ? "Select an LGA" : "Select a state first"} />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {lgaOptions.map((lga) => (
+                                      <SelectItem key={lga} value={lga}>
+                                        {lga}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>

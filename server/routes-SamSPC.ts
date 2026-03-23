@@ -1355,6 +1355,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         contactEmail,
         contactPhone,
         category,
+        state,
+        lga,
         reporterInfo,
         actors,
       } = req.body;
@@ -1390,6 +1392,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description,
         location, // Use the provided location
         region,
+        state: typeof state === "string" ? state : undefined,
+        lga: typeof lga === "string" ? lga : undefined,
         severity: "medium", // Default severity for public reports
         status: "pending", // Incidents from public start as pending
         category: category || "conflict", // Default category
@@ -1413,6 +1417,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.status(400).json({ error: "Failed to create incident", details: (error as Error).message });
     }
+  });
+
+  // LGA options (for dropdowns filtered by state)
+  app.get("/api/public/lga-options", async (req, res) => {
+    const state = typeof req.query.state === "string" ? req.query.state : undefined;
+    if (!state) return res.status(400).json({ error: "state is required" });
+
+    const incidents = await storage.getIncidentsFiltered({ state });
+    const lgas = Array.from(
+      new Set(incidents.map((i) => i.lga).filter((v): v is string => typeof v === "string" && v.trim().length > 0)),
+    ).sort();
+    res.json(lgas);
   });
 
   // LGA options (for dropdowns filtered by state)

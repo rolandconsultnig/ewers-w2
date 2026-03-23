@@ -142,6 +142,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   io.on("connection", async (socket) => {
     const userId = socket.handshake.auth?.userId;
     const username = socket.handshake.auth?.username;
+    const rawGuestParticipantId = socket.handshake.auth?.guestParticipantId;
+    const rawGuestCallId = socket.handshake.auth?.guestCallId;
+    const guestParticipantId =
+      typeof rawGuestParticipantId === "number" ? rawGuestParticipantId : undefined;
+    const guestCallId = typeof rawGuestCallId === "number" ? rawGuestCallId : undefined;
+    const guestDisplayName =
+      typeof socket.handshake.auth?.guestDisplayName === "string"
+        ? socket.handshake.auth.guestDisplayName
+        : undefined;
     if (userId && username) {
       onlineUsers.set(socket.id, { userId, username });
       io.emit("online-users", Array.from(onlineUsers.values()));
@@ -182,30 +191,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     });
     socket.on("call:join", (callId: number) => {
+      if (guestParticipantId != null && guestCallId !== callId) return;
       socket.join(`call:${callId}`);
     });
     socket.on("call:leave", (callId: number) => {
       socket.leave(`call:${callId}`);
     });
     socket.on("call:offer", (data: { callId: number; offer: object; toUserId?: number; toGuestParticipantId?: number }) => {
-      const payload = userId != null ? { ...data, fromUserId: userId } : data;
+      const payload =
+        userId != null
+          ? { ...data, fromUserId: userId }
+          : { ...data, fromGuestParticipantId: guestParticipantId, fromGuestDisplayName: guestDisplayName };
       socket.to(`call:${data.callId}`).emit("call:offer", payload);
     });
     socket.on("call:answer", (data: { callId: number; answer: object; toUserId?: number; toGuestParticipantId?: number }) => {
-      const payload = userId != null ? { ...data, fromUserId: userId } : data;
+      const payload =
+        userId != null
+          ? { ...data, fromUserId: userId }
+          : { ...data, fromGuestParticipantId: guestParticipantId, fromGuestDisplayName: guestDisplayName };
       socket.to(`call:${data.callId}`).emit("call:answer", payload);
     });
     socket.on("call:ice", (data: { callId: number; candidate: object; toUserId?: number; toGuestParticipantId?: number }) => {
-      const payload = userId != null ? { ...data, fromUserId: userId } : data;
+      const payload = userId != null ? { ...data, fromUserId: userId } : { ...data, fromGuestParticipantId: guestParticipantId };
       socket.to(`call:${data.callId}`).emit("call:ice", payload);
     });
     socket.on("call:request-offer", (callId: number) => {
-      const payload = userId != null ? { callId, fromUserId: userId } : { callId };
-      socket.to(`call:${callId}`).emit("call:request-offer", payload);
+      if (userId != null) {
+        socket.to(`call:${callId}`).emit("call:request-offer", { callId, fromUserId: userId });
+      } else {
+        socket.to(`call:${callId}`).emit("call:request-offer", {
+          callId,
+          fromGuestParticipantId: guestParticipantId,
+          fromGuestDisplayName: guestDisplayName,
+        });
+      }
     });
     socket.on("call:participant-joined", (data: { callId: number }) => {
-      const payload = userId != null ? { callId: data.callId, userId } : { callId: data.callId };
-      socket.to(`call:${data.callId}`).emit("call:participant-joined", payload);
+      if (userId != null) {
+        socket.to(`call:${data.callId}`).emit("call:participant-joined", { callId: data.callId, userId });
+      } else {
+        socket.to(`call:${data.callId}`).emit("call:participant-joined", {
+          callId: data.callId,
+          guestParticipantId,
+          guestDisplayName,
+        });
+      }
     });
 
     socket.on("disconnect", () => {
@@ -1435,6 +1465,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // LGA options (for dropdowns filtered by state)
+  app.get("/api/public/lga-options", async (req, res) => {
+    const state = typeof req.query.state === "string" ? req.query.state : undefined;
+    if (!state) return res.status(400).json({ error: "state is required" });
+
+    const incidents = await storage.getIncidentsFiltered({ state });
+    const lgas = Array.from(
+      new Set(incidents.map((i) => i.lga).filter((v): v is string => typeof v === "string" && v.trim().length > 0)),
+    ).sort();
+    res.json(lgas);
+  });
+
+  // LGA options (for dropdowns filtered by state)
   app.get("/api/lga-options", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const state = typeof req.query.state === "string" ? req.query.state : undefined;
@@ -1450,7 +1492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Extract the necessary incident data from the request
       const { 
         title, description, location, region, actorType, actorName,
-        contactName, contactEmail, contactPhone, category
+        contactName, contactEmail, contactPhone, category, state, lga
       } = req.body;
 
       const users = await storage.getAllUsers();
@@ -1480,6 +1522,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description,
         location, // Use the provided location
         region,
+        state: typeof state === "string" ? state : undefined,
+        lga: typeof lga === "string" ? lga : undefined,
         severity: "medium", // Default severity for public reports
         status: "pending", // Incidents from public start as pending
         category: category || "conflict", // Default category
@@ -1865,6 +1909,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error in generate alert:", error);
       res.status(500).json({ error: "Failed to generate alert" });
+    }
+  });
+
+  // AI: Create alert directly from AI-generated analysis (no analysisId required)
+  app.post("/api/ai/create-alert-from-analysis", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+
+    const user = req.user as SelectUser;
+    if (
+      user.securityLevel < 4 &&
+      user.role !== "admin" &&
+      user.role !== "coordinator" &&
+      user.role !== "analyst"
+    ) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+
+    try {
+      const insertSchema = z.object({
+        title: z.string().min(1),
+        description: z.string().min(1),
+        severity: z.enum(["low", "medium", "high", "critical"]),
+        region: z.string().min(1),
+        location: z.string().min(1).optional(),
+        category: z.string().optional(),
+      });
+
+      const validated = insertSchema.parse(req.body);
+
+      const alertData = {
+        title: validated.title,
+        description: validated.description,
+        severity: validated.severity,
+        status: "active",
+        source: "automated",
+        region: validated.region,
+        location: validated.location ?? validated.region,
+        category: validated.category ?? "risk",
+        channels: ["email", "app"],
+        incidentId: null,
+      } as any;
+
+      const savedAlert = await storage.createAlert(alertData);
+      io.emit("new-alert", savedAlert);
+
+      res.status(201).json(savedAlert);
+    } catch (e) {
+      console.error("Error creating alert from analysis:", e);
+      if (e instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid payload", details: e.errors });
+      }
+      res.status(500).json({ error: "Failed to create alert from analysis" });
     }
   });
 

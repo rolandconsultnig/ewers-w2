@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import jsPDF from "jspdf";
 
 export default function AiAnalysisPage() {
   const { toast } = useToast();
@@ -45,6 +46,115 @@ export default function AiAnalysisPage() {
   const [isLoadingResponse, setIsLoadingResponse] = useState(false);
   const [incidentSearch, setIncidentSearch] = useState("");
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
+
+  const handleExportPdf = () => {
+    if (!analysisResult) return;
+
+    try {
+      const doc = new jsPDF();
+      const dateStr = new Date().toISOString().slice(0, 10);
+
+      const title = String(analysisResult.title ?? "AI Analysis Report");
+      const description = String(analysisResult.description ?? "");
+      const recommendations = Array.isArray(analysisResult.recommendations) ? analysisResult.recommendations : [];
+      const keyFindings = Array.isArray(analysisResult.keyFindings) ? analysisResult.keyFindings : [];
+
+      doc.setFontSize(18);
+      doc.text("EWERS AI Analysis Report", 14, 20);
+      doc.setFontSize(12);
+      doc.text(`Generated: ${dateStr}`, 14, 28);
+
+      doc.setDrawColor(30, 58, 95);
+      doc.line(14, 32, 196, 32);
+
+      let y = 40;
+      doc.setFontSize(14);
+      doc.text("Summary", 14, y);
+      y += 8;
+      doc.setFontSize(11);
+
+      const titleLines = doc.splitTextToSize(title, 180);
+      doc.text(titleLines, 14, y);
+      y += titleLines.length * 6;
+
+      const descLines = doc.splitTextToSize(description, 180);
+      doc.text(descLines, 14, y);
+      y += descLines.length * 6 + 6;
+
+      doc.setFontSize(12);
+      doc.text("Key Findings", 14, y);
+      y += 8;
+      doc.setFontSize(11);
+      keyFindings.slice(0, 12).forEach((f: string) => {
+        const lines = doc.splitTextToSize(`• ${f}`, 180);
+        doc.text(lines, 14, y);
+        y += lines.length * 6;
+        if (y > 270) {
+          doc.addPage();
+          y = 20;
+        }
+      });
+
+      y += 6;
+      doc.setFontSize(12);
+      doc.text("Recommendations", 14, y);
+      y += 8;
+      doc.setFontSize(11);
+      recommendations.slice(0, 12).forEach((r: string) => {
+        const lines = doc.splitTextToSize(`• ${r}`, 180);
+        doc.text(lines, 14, y);
+        y += lines.length * 6;
+        if (y > 270) {
+          doc.addPage();
+          y = 20;
+        }
+      });
+
+      const filename = `ewer-ai-analysis-${String(region).replace(/\\s+/g, "-").toLowerCase()}-${dateStr}.pdf`;
+      doc.save(filename);
+
+      toast({ title: "Exported PDF", description: "The report PDF has been downloaded." });
+    } catch (e) {
+      toast({
+        title: "PDF Export failed",
+        description: e instanceof Error ? e.message : "Could not export PDF",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCreateAlertFromAnalysis = async () => {
+    if (!analysisResult) return;
+    try {
+      const severityFromRisk = analysisResult.severity as string;
+      const severity =
+        severityFromRisk === "high" ? "high" : severityFromRisk === "medium" ? "medium" : "low";
+
+      const payload = {
+        title: String(analysisResult.title ?? "AI Risk Alert"),
+        description: String(analysisResult.description ?? ""),
+        severity: severity as "low" | "medium" | "high" | "critical",
+        region: String(region ?? "Nigeria"),
+        location: String(region ?? "Nigeria"),
+        category: "risk",
+      };
+
+      const res = await apiRequest("POST", "/api/ai/create-alert-from-analysis", payload);
+      // apiRequest returns Response; queryClient helper throws on non-ok
+      await res.json();
+
+      toast({
+        title: "Alert created",
+        description: "An alert has been generated from this AI analysis.",
+      });
+    } catch (e) {
+      toast({
+        title: "Create Alert failed",
+        description: e instanceof Error ? e.message : "Could not create alert",
+        variant: "destructive",
+      });
+    }
+  };
   
   // Fetch data for analysis
   const { 
@@ -438,11 +548,11 @@ export default function AiAnalysisPage() {
                       </div>
                       
                       <div className="flex justify-end gap-2 mt-4">
-                        <Button variant="outline" size="sm">
+                        <Button variant="outline" size="sm" onClick={handleExportPdf}>
                           <Download className="h-4 w-4 mr-2" />
                           Export PDF
                         </Button>
-                        <Button size="sm">
+                        <Button size="sm" onClick={handleCreateAlertFromAnalysis}>
                           Create Alert
                         </Button>
                       </div>

@@ -1096,7 +1096,8 @@ export type CallSession = typeof callSessions.$inferSelect;
 export const callParticipants = pgTable("call_participants", {
   id: serial("id").notNull().primaryKey(),
   callSessionId: integer("call_session_id").references(() => callSessions.id).notNull(),
-  userId: integer("user_id").references(() => users.id).notNull(),
+  userId: integer("user_id").references(() => users.id),
+  guestDisplayName: text("guest_display_name"),
   joinedAt: timestamp("joined_at").notNull().defaultNow(),
   leftAt: timestamp("left_at"),
 });
@@ -1104,6 +1105,7 @@ export const callParticipants = pgTable("call_participants", {
 export const insertCallParticipantSchema = createInsertSchema(callParticipants).pick({
   callSessionId: true,
   userId: true,
+  guestDisplayName: true,
   leftAt: true,
 });
 
