@@ -28,7 +28,7 @@ L.Marker.prototype.options.icon = defaultIcon;
 
 // Custom icons for different incident types with increased size
 const criticalSeverityIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-violet.png',
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
   iconSize: [38, 62],  // Largest size for critical
   iconAnchor: [19, 62],
@@ -48,7 +48,7 @@ const highSeverityIcon = new L.Icon({
 });
 
 const mediumSeverityIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
   iconSize: [32, 52],  // Medium-large size
   iconAnchor: [16, 52],
@@ -58,7 +58,7 @@ const mediumSeverityIcon = new L.Icon({
 });
 
 const lowSeverityIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
   iconSize: [30, 45],  // Standard size
   iconAnchor: [15, 45],
@@ -67,9 +67,9 @@ const lowSeverityIcon = new L.Icon({
   className: 'low-severity-marker' // Add class for potential CSS targeting
 });
 
-// Pinned incident icon (gold/yellow marker)
+// Pinned incidents (distinct from severity colours)
 const pinnedIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
   iconSize: [38, 62],  // Larger size for pinned items
   iconAnchor: [19, 62],
@@ -742,7 +742,7 @@ export default function NigeriaMap({
               key={`heat-${incident.id}-${idx}`}
               center={[lat, lng]}
               radius={50000}
-              pathOptions={{ fillColor: 'red', fillOpacity: 0.2, weight: 0 }}
+              pathOptions={{ fillColor: '#ea580c', fillOpacity: 0.22, weight: 0 }}
             />
           );
         })}

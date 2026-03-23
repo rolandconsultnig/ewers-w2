@@ -10,7 +10,8 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertIncidentSchema, DataSource, insertDataSourceSchema } from "@shared/schema";
+import { DataSource, insertDataSourceSchema } from "@shared/schema";
+import { NIGERIA_REGIONS, NIGERIA_REGION_STATES } from "@/lib/nigeria-regions";
 import { useAuth } from "@/hooks/use-auth";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -19,25 +20,22 @@ import { FileText, Upload, Database, Radio, Users, RefreshCw, Shield, AlertTrian
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-// Create a schema for incident reporting
-const incidentSchema = insertIncidentSchema
-  .pick({
-    title: true,
-    description: true,
-    location: true,
-    severity: true,
-  })
-  .extend({
-    location: z.string().min(3, "Location must be at least 3 characters"),
-    severity: z.enum(["low", "medium", "high"], {
-      required_error: "Please select a severity level",
-    }),
-    sourceId: z.coerce.number().optional(),
-    actorType: z.enum(["state", "non-state"], {
-      required_error: "Please select an actor type",
-    }),
-    actorName: z.string().min(2, "Actor name must be at least 2 characters"),
-  });
+// Manual incident report (aligned with public flow; source is system-assigned from feeds / AI aggregation)
+const incidentSchema = z.object({
+  title: z.string().min(3, "Title must be at least 3 characters"),
+  description: z.string().min(10, "Description must be at least 10 characters"),
+  location: z.string().min(3, "Location must be at least 3 characters"),
+  town: z.string().min(1, "Town or community is required"),
+  incidentOccurredAt: z.string().min(1, "Please select date and time of the incident"),
+  region: z.string().min(2, "Please select a region"),
+  state: z.string().optional(),
+  lga: z.string().optional(),
+  severity: z.enum(["low", "medium", "high", "critical"], {
+    required_error: "Please select a severity level",
+  }),
+  actorType: z.enum(["state", "non-state", "none"]).optional(),
+  actorName: z.string().optional(),
+});
 
 type IncidentFormValues = z.infer<typeof incidentSchema>;
 
@@ -200,32 +198,67 @@ export default function DataCollectionPage() {
       title: "",
       description: "",
       location: "",
+      town: "",
+      incidentOccurredAt: "",
+      region: "North Central",
+      state: "",
+      lga: "",
       severity: undefined,
-      sourceId: undefined,
-      actorType: undefined,
+      actorType: "none",
       actorName: "",
+    },
+  });
+
+  const selectedDcRegion = form.watch("region");
+  const selectedDcState = form.watch("state");
+
+  useEffect(() => {
+    const allowed = NIGERIA_REGION_STATES[selectedDcRegion] ?? [];
+    if (selectedDcState && !allowed.includes(selectedDcState)) {
+      form.setValue("state", "", { shouldDirty: true, shouldValidate: true });
+    }
+  }, [selectedDcRegion, selectedDcState, form]);
+
+  useEffect(() => {
+    form.setValue("lga", "", { shouldDirty: true, shouldValidate: true });
+  }, [selectedDcState, form]);
+
+  const { data: dcLgaOptions = [], isLoading: dcLoadingLga } = useQuery<string[]>({
+    queryKey: ["/api/lga-options", selectedDcState],
+    enabled: typeof selectedDcState === "string" && selectedDcState.trim().length > 0 && !!user,
+    queryFn: async () => {
+      const st = selectedDcState ?? "";
+      const res = await apiRequest("GET", `/api/lga-options?state=${encodeURIComponent(st)}`);
+      return res.json();
     },
   });
 
   const reportIncidentMutation = useMutation({
     mutationFn: async (data: IncidentFormValues) => {
-      // Add the required fields for the incident schema
       const incidentData = {
-        ...data,
+        title: data.title,
+        description: data.description,
+        location: data.location,
+        town: data.town,
+        incidentOccurredAt: data.incidentOccurredAt,
+        region: data.region,
+        state: data.state || undefined,
+        lga: data.lga || undefined,
+        severity: data.severity,
         reportedBy: user!.id,
         status: "active",
-        region: "Nigeria",
         category: "conflict",
-        sourceId: data.sourceId,
-        locationMetadata: {
-          coordinates: data.location,
-          region: "Nigeria"
-        },
         verificationStatus: "unverified",
-        actors: {
-          type: data.actorType,
-          name: data.actorName
-        }
+        reportingMethod: "web_form",
+        coordinates:
+          data.actorType && data.actorType !== "none"
+            ? {
+                lat: 0,
+                lng: 0,
+                address: data.location,
+                actors: { type: data.actorType, name: (data.actorName || "").trim() },
+              }
+            : undefined,
       };
       
       const res = await apiRequest("POST", "/api/incidents", incidentData);
@@ -507,7 +540,7 @@ export default function DataCollectionPage() {
   };
 
   return (
-    <MainLayout title="Data Collection">
+    <MainLayout title="Create Report">
       {/* Data Source Configuration Dialog */}
       <Dialog open={configureDialogOpen} onOpenChange={setConfigureDialogOpen}>
         <DialogContent className="sm:max-w-[600px]">
@@ -833,75 +866,29 @@ export default function DataCollectionPage() {
                         )}
                       />
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <FormField
-                          control={form.control}
-                          name="location"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Location</FormLabel>
-                              <FormControl>
-                                <Input placeholder="Town, District, Region" {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        
-                        <FormField
-                          control={form.control}
-                          name="severity"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Severity Level</FormLabel>
-                              <Select 
-                                onValueChange={field.onChange} 
-                                defaultValue={field.value}
-                              >
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select severity level" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value="low">Low</SelectItem>
-                                  <SelectItem value="medium">Medium</SelectItem>
-                                  <SelectItem value="high">High</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
+                      <FormField
+                        control={form.control}
+                        name="location"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Location</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Landmark, road, or general area" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
                       <FormField
                         control={form.control}
-                        name="sourceId"
+                        name="incidentOccurredAt"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Source (Optional)</FormLabel>
-                            <Select
-                              onValueChange={(value) => {
-                                if (value === "none") field.onChange(undefined);
-                                else field.onChange(parseInt(value));
-                              }}
-                              defaultValue={field.value != null ? String(field.value) : "none"}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select source (optional)" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="none">None</SelectItem>
-                                {(sources || []).map((s) => (
-                                  <SelectItem key={s.id} value={String(s.id)}>
-                                    {s.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <FormLabel>Time and date of incident</FormLabel>
+                            <FormControl>
+                              <Input type="datetime-local" {...field} />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -910,37 +897,157 @@ export default function DataCollectionPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <FormField
                           control={form.control}
-                          name="actorType"
+                          name="region"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Actor Type</FormLabel>
-                              <Select 
-                                onValueChange={field.onChange} 
-                                defaultValue={field.value}
-                              >
+                              <FormLabel>Region</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value}>
                                 <FormControl>
                                   <SelectTrigger>
-                                    <SelectValue placeholder="Select actor type" />
+                                    <SelectValue placeholder="Select region" />
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  <SelectItem value="state">State Actor</SelectItem>
-                                  <SelectItem value="non-state">Non-State Actor</SelectItem>
+                                  {NIGERIA_REGIONS.map((r) => (
+                                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                                  ))}
                                 </SelectContent>
                               </Select>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
-                        
+                        <FormField
+                          control={form.control}
+                          name="state"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>State</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select state" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {(NIGERIA_REGION_STATES[selectedDcRegion] ?? []).map((s) => (
+                                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <FormField
+                          control={form.control}
+                          name="lga"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>LGA</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value ?? ""}
+                                disabled={!selectedDcState || dcLoadingLga}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder={selectedDcState ? "Select LGA" : "Select state first"} />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {dcLgaOptions.map((lga) => (
+                                    <SelectItem key={lga} value={lga}>{lga}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="town"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Town / community</FormLabel>
+                              <FormControl>
+                                <Input placeholder="Town or community name" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name="severity"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Severity level</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select severity" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="low">Low — relatively stable</SelectItem>
+                                <SelectItem value="medium">Medium — moderate risk</SelectItem>
+                                <SelectItem value="high">High — rising tension</SelectItem>
+                                <SelectItem value="critical">Critical — active tension / violence</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="rounded-lg border border-blue-200 bg-blue-50/80 p-4 text-sm text-blue-950">
+                        <p className="font-medium flex items-center gap-2">
+                          <Shield className="h-4 w-4" />
+                          Automated sourcing &amp; AI aggregation
+                        </p>
+                        <p className="mt-1 text-blue-900/90">
+                          Manual reports no longer use a user-selected &quot;Source&quot; field. Credibility and channel attribution are handled by configured news and media feeds plus AI-assisted aggregation from approved sources—use <strong>External Sources</strong> and <strong>Fetch from sources</strong> elsewhere on this page to pull structured items for analysis.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <FormField
+                          control={form.control}
+                          name="actorType"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Actor type (optional)</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value ?? "none"}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Optional" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="none">Not specified</SelectItem>
+                                  <SelectItem value="state">State actor</SelectItem>
+                                  <SelectItem value="non-state">Non-state actor</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                         <FormField
                           control={form.control}
                           name="actorName"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Actor Name</FormLabel>
+                              <FormLabel>Actor name (optional)</FormLabel>
                               <FormControl>
-                                <Input placeholder="Enter actor name" {...field} />
+                                <Input placeholder="If known" {...field} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -985,7 +1092,7 @@ export default function DataCollectionPage() {
                       </li>
                       <li className="flex items-start">
                         <FileText className="h-5 w-5 mr-2 text-primary" />
-                        <span>Specify sources of information if applicable</span>
+                        <span>Source attribution for bulk data is handled via feeds and AI aggregation—not manual dropdowns on this form</span>
                       </li>
                     </ul>
                   </CardContent>

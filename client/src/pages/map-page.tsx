@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link, useLocation } from "wouter";
 import MainLayout from "@/components/layout/MainLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -187,6 +188,7 @@ const mockIncidents: MapMockIncident[] = [
 ];
 
 export default function MapPage() {
+  const [, setLocation] = useLocation();
   const [mapHeight, setMapHeight] = useState("700px");
   const [isMapReady, setIsMapReady] = useState(false);
   const [pinnedOnly, setPinnedOnly] = useState(false);
@@ -225,9 +227,11 @@ export default function MapPage() {
                 <span className="text-xs text-muted-foreground">Pinned only</span>
                 <Switch checked={pinnedOnly} onCheckedChange={setPinnedOnly} />
               </div>
-              <Button variant="outline" size="sm">
-                <AlertTriangle className="h-4 w-4 mr-2" />
-                Report Incident
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/report-incident" className="inline-flex items-center">
+                  <AlertTriangle className="h-4 w-4 mr-2" />
+                  Report Incident
+                </Link>
               </Button>
               <Button 
                 variant="outline" 
@@ -253,6 +257,10 @@ export default function MapPage() {
                 <NigeriaMap 
                   height={mapHeight}
                   showIncidents={true}
+                  showAddIncidentButton={true}
+                  onAddIncident={(lat, lng) =>
+                    setLocation(`/report-incident?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`)
+                  }
                   incidents={visibleIncidents}
                 />
               </div>
@@ -265,26 +273,29 @@ export default function MapPage() {
         <h3 className="text-lg font-semibold mb-2">Map Legend</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="flex items-center space-x-2">
-            <div className="w-5 h-5 rounded-full bg-red-500"></div>
-            <span>High Severity Incidents</span>
+            <div className="w-5 h-5 rounded-full bg-red-600"></div>
+            <span>Critical — active tension / violence</span>
           </div>
           <div className="flex items-center space-x-2">
-            <div className="w-5 h-5 rounded-full bg-amber-500"></div>
-            <span>Medium Severity Incidents</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-5 h-5 rounded-full bg-blue-500"></div>
-            <span>Low Severity Incidents</span>
+            <div className="w-5 h-5 rounded-full bg-orange-500"></div>
+            <span>High — rising tension</span>
           </div>
           <div className="flex items-center space-x-2">
             <div className="w-5 h-5 rounded-full bg-yellow-500"></div>
-            <span>📌 Pinned Incidents</span>
+            <span>Medium — moderate risk</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-5 h-5 rounded-full bg-green-600"></div>
+            <span>Low — relatively stable</span>
+          </div>
+          <div className="flex items-center space-x-2 sm:col-span-2">
+            <div className="w-5 h-5 rounded-full bg-amber-400 border border-amber-700"></div>
+            <span>📌 Pinned incidents</span>
           </div>
         </div>
         <div className="mt-4">
           <p className="text-sm text-muted-foreground">
-            Use the <strong>layer control (top-right)</strong> to switch between satellite imagery (Esri World Imagery, Landsat/Clarity), 
-            street maps, and topographic views. Click on any marker to view incident details.
+            Use the <strong>layer control (top-right)</strong> to switch map layers. <strong>Click the map</strong> to start a report at that location (opens the public report form with coordinates). Click any marker for incident details.
           </p>
           
           <div className="mt-6 pt-4 border-t text-center text-gray-400 text-sm">

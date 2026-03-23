@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { useI18n } from "@/contexts/I18nContext";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 
@@ -20,12 +20,15 @@ import { ArrowLeft, FileText, MapPin, AlertTriangle, User, Mic, MicOff } from "l
 
 // Import the IPCR logo
 import ipcr_logo from "@assets/Institute-For-Peace-And-Conflict-Resolution.jpg";
+import { NIGERIA_REGIONS, NIGERIA_REGION_STATES } from "@/lib/nigeria-regions";
 
 // Public incident report: only incident details required; contact and actor info optional
 const publicIncidentSchema = z.object({
   title: z.string().min(3, "Title must be at least 3 characters"),
   description: z.string().min(10, "Please provide a short description (at least 10 characters)"),
-  location: z.string().min(2, "Location is required (e.g. town or area)"),
+  location: z.string().min(2, "Location is required (e.g. landmark or general area)"),
+  town: z.string().min(1, "Town or community is required"),
+  incidentOccurredAt: z.string().min(1, "Please select date and time of the incident"),
   region: z.string().min(2, "Please select a region"),
   state: z.string().optional(),
   lga: z.string().optional(),
@@ -50,7 +53,8 @@ type PublicIncidentFormValues = z.infer<typeof publicIncidentSchema>;
 export default function ReportIncidentPage() {
   const { toast } = useToast();
   const { language } = useI18n();
-  
+  const searchString = useSearch();
+
   // Initialize form
   const form = useForm<PublicIncidentFormValues>({
     resolver: zodResolver(publicIncidentSchema),
@@ -58,6 +62,8 @@ export default function ReportIncidentPage() {
       title: "",
       description: "",
       location: "",
+      town: "",
+      incidentOccurredAt: "",
       region: "North Central",
       state: "",
       lga: "",
@@ -74,10 +80,18 @@ export default function ReportIncidentPage() {
   const reportIncidentMutation = useMutation({
     mutationFn: async (data: PublicIncidentFormValues) => {
       const actorType = data.actorType && data.actorType !== "skip" ? data.actorType : undefined;
+      const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+      const qlat = params.get("lat");
+      const qlng = params.get("lng");
+      const latn = qlat != null ? Number(qlat) : NaN;
+      const lngn = qlng != null ? Number(qlng) : NaN;
+
       const incidentData = {
         title: data.title,
         description: data.description,
         location: data.location,
+        town: data.town,
+        incidentOccurredAt: data.incidentOccurredAt,
         region: data.region,
         state: data.state || undefined,
         lga: data.lga || undefined,
@@ -87,6 +101,7 @@ export default function ReportIncidentPage() {
         contactName: (data.contactName || "").trim(),
         contactEmail: (data.contactEmail && data.contactEmail.trim()) || "",
         contactPhone: (data.contactPhone || "").trim(),
+        ...(Number.isFinite(latn) && Number.isFinite(lngn) ? { lat: latn, lng: lngn } : {}),
       };
       const res = await fetch("/api/public/incidents", {
         method: "POST",
@@ -127,25 +142,18 @@ export default function ReportIncidentPage() {
     reportIncidentMutation.mutate(data);
   }
 
-  // Nigeria regions
-  const nigeriaRegions = [
-    "North Central",
-    "North East",
-    "North West",
-    "South East",
-    "South South",
-    "South West",
-    "Federal Capital Territory"
-  ];
-  const nigeriaRegionStates: Record<string, string[]> = {
-    "North Central": ["Benue", "Kogi", "Kwara", "Nasarawa", "Niger", "Plateau", "FCT"],
-    "North East": ["Adamawa", "Bauchi", "Borno", "Gombe", "Taraba", "Yobe"],
-    "North West": ["Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Sokoto", "Zamfara"],
-    "South East": ["Abia", "Anambra", "Ebonyi", "Enugu", "Imo"],
-    "South South": ["Akwa Ibom", "Bayelsa", "Cross River", "Delta", "Edo", "Rivers"],
-    "South West": ["Ekiti", "Lagos", "Ogun", "Ondo", "Osun", "Oyo"],
-    "Federal Capital Territory": ["FCT"],
-  };
+  const nigeriaRegions = [...NIGERIA_REGIONS];
+  const nigeriaRegionStates = NIGERIA_REGION_STATES;
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const lat = params.get("lat");
+    const lng = params.get("lng");
+    if (lat && lng) {
+      const label = `Map location (${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)})`;
+      form.setValue("location", label, { shouldDirty: true });
+    }
+  }, [searchString, form]);
 
   const selectedRegion = form.watch("region");
   const selectedState = form.watch("state");
@@ -305,21 +313,36 @@ export default function ReportIncidentPage() {
                           )}
                         />
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <FormField
-                            control={form.control}
-                            name="location"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Location</FormLabel>
-                                <FormControl>
-                                  <Input placeholder="Village, Town, or Area" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
+                        <FormField
+                          control={form.control}
+                          name="location"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Location</FormLabel>
+                              <FormControl>
+                                <Input placeholder="Landmark, road, or general area" {...field} />
+                              </FormControl>
+                              <FormDescription>Where it happened (can include a map-picked point).</FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
 
+                        <FormField
+                          control={form.control}
+                          name="incidentOccurredAt"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Time and date of incident</FormLabel>
+                              <FormControl>
+                                <Input type="datetime-local" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <FormField
                             control={form.control}
                             name="region"
@@ -347,9 +370,6 @@ export default function ReportIncidentPage() {
                               </FormItem>
                             )}
                           />
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <FormField
                             control={form.control}
                             name="state"
@@ -374,7 +394,9 @@ export default function ReportIncidentPage() {
                               </FormItem>
                             )}
                           />
+                        </div>
 
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <FormField
                             control={form.control}
                             name="lga"
@@ -399,6 +421,19 @@ export default function ReportIncidentPage() {
                                     ))}
                                   </SelectContent>
                                 </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="town"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Town / community</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="Town or community name" {...field} />
+                                </FormControl>
                                 <FormMessage />
                               </FormItem>
                             )}

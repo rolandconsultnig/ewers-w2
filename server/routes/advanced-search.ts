@@ -9,6 +9,13 @@ import { db } from "../db";
 import { incidents, alerts, dataSources, users } from "@shared/schema";
 import { and, or, like, gte, lte, eq, desc } from "drizzle-orm";
 
+/** Reduce SQL LIKE wildcard injection; returns null if too little meaningful text (avoid `%%` matching all). */
+function likePattern(raw: string, minLen = 2): string | null {
+  const cleaned = raw.replace(/[%_\\]/g, "").trim();
+  if (cleaned.length < minLen) return null;
+  return `%${cleaned}%`;
+}
+
 export function setupAdvancedSearchRoutes(app: Router, storage: IStorage) {
   
   // Advanced incident search with multiple filters
@@ -28,17 +35,21 @@ export function setupAdvancedSearchRoutes(app: Router, storage: IStorage) {
         limit = 100,
       } = req.body;
 
-      let query = db.select().from(incidents);
       const conditions = [];
 
       // Keyword search (title or description)
       if (keyword) {
-        conditions.push(
-          or(
-            like(incidents.title, `%${keyword}%`),
-            like(incidents.description, `%${keyword}%`)
-          )
-        );
+        const kw = likePattern(String(keyword), 1);
+        if (kw) {
+          conditions.push(
+            or(
+              like(incidents.title, kw),
+              like(incidents.description, kw),
+              like(incidents.location, kw),
+              like(incidents.town, kw)
+            )
+          );
+        }
       }
 
       // Region filter
@@ -74,15 +85,13 @@ export function setupAdvancedSearchRoutes(app: Router, storage: IStorage) {
         conditions.push(eq(incidents.verificationStatus, verificationStatus));
       }
 
-      // Apply all conditions
-      if (conditions.length > 0) {
-        query = query.where(and(...conditions)) as any;
-      }
+      const base = db.select().from(incidents);
+      const filtered =
+        conditions.length > 0 ? base.where(and(...conditions)) : base;
 
-      // Apply limit and order
-      const results = await query
+      const results = await filtered
         .orderBy(desc(incidents.reportedAt))
-        .limit(Math.min(limit, 500));
+        .limit(Math.min(Number(limit) || 100, 500));
 
       res.json({
         results,
@@ -106,7 +115,11 @@ export function setupAdvancedSearchRoutes(app: Router, storage: IStorage) {
         return res.status(400).json({ error: "Search query must be at least 2 characters" });
       }
 
-      const searchPattern = `%${searchQuery}%`;
+      const searchPattern = likePattern(searchQuery, 2);
+      if (!searchPattern) {
+        return res.status(400).json({ error: "Search query must include at least 2 non-wildcard characters" });
+      }
+      const lim = Math.min(Number(limit) || 50, 200);
 
       // Search incidents
       const incidentResults = await db
@@ -116,17 +129,25 @@ export function setupAdvancedSearchRoutes(app: Router, storage: IStorage) {
           or(
             like(incidents.title, searchPattern),
             like(incidents.description, searchPattern),
-            like(incidents.location, searchPattern)
+            like(incidents.location, searchPattern),
+            like(incidents.region, searchPattern),
+            like(incidents.state, searchPattern),
+            like(incidents.town, searchPattern)
           )
         )
-        .limit(limit);
+        .limit(lim);
 
       // Search alerts
       const alertResults = await db
         .select()
         .from(alerts)
-        .where(like(alerts.title, searchPattern))
-        .limit(limit);
+        .where(
+          or(
+            like(alerts.title, searchPattern),
+            like(alerts.description, searchPattern)
+          )
+        )
+        .limit(lim);
 
       // Search data sources
       const sourceResults = await db
@@ -138,7 +159,7 @@ export function setupAdvancedSearchRoutes(app: Router, storage: IStorage) {
             like(dataSources.description, searchPattern)
           )
         )
-        .limit(limit);
+        .limit(lim);
 
       // Search users (limited fields for privacy)
       const userResults = await db
@@ -155,7 +176,7 @@ export function setupAdvancedSearchRoutes(app: Router, storage: IStorage) {
             like(users.fullName, searchPattern)
           )
         )
-        .limit(limit);
+        .limit(lim);
 
       res.json({
         query: searchQuery,
@@ -218,11 +239,15 @@ export function setupAdvancedSearchRoutes(app: Router, storage: IStorage) {
         limit = 100,
       } = req.body;
 
-      let query = db.select().from(alerts);
       const conditions = [];
 
       if (keyword) {
-        conditions.push(like(alerts.title, `%${keyword}%`));
+        const kw = likePattern(String(keyword), 1);
+        if (kw) {
+          conditions.push(
+            or(like(alerts.title, kw), like(alerts.description, kw), like(alerts.location, kw))
+          );
+        }
       }
 
       if (severity) {
@@ -241,13 +266,13 @@ export function setupAdvancedSearchRoutes(app: Router, storage: IStorage) {
         conditions.push(lte(alerts.generatedAt, new Date(endDate)));
       }
 
-      if (conditions.length > 0) {
-        query = query.where(and(...conditions)) as any;
-      }
+      const base = db.select().from(alerts);
+      const filtered =
+        conditions.length > 0 ? base.where(and(...conditions)) : base;
 
-      const results = await query
+      const results = await filtered
         .orderBy(desc(alerts.generatedAt))
-        .limit(Math.min(limit, 500));
+        .limit(Math.min(Number(limit) || 100, 500));
 
       res.json({
         results,

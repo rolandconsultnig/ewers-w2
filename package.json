@@ -15,6 +15,7 @@
     "db:migrate:call-participants": "tsx scripts/migrate-call-participants-guest.ts",
     "db:migrate:calls-schema": "tsx scripts/ensure-calls-schema.ts",
     "db:seed": "tsx scripts/seed-admin.ts",
+    "db:migrate:incident-columns": "tsx scripts/apply-incident-columns.ts",
     "db:seed:responder-admin": "tsx scripts/seed-responder-admin.ts",
     "db:seed:global": "tsx scripts/create-global-user.ts",
     "db:seed:nigeria-issues": "tsx scripts/seed-nigeria-recent-issues.ts",

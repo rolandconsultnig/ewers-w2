@@ -166,6 +166,9 @@ export const incidents = pgTable("incidents", {
   region: text("region").notNull().default("Nigeria"),
   state: text("state"),
   lga: text("lga"), // Local Government Area
+  town: text("town"),
+  /** When the incident occurred in the field (optional; distinct from reported_at). */
+  incidentOccurredAt: timestamp("incident_occurred_at"),
   severity: text("severity").notNull(), // low, medium, high, critical
   status: text("status").notNull().default("active"),
   reportedAt: timestamp("reported_at").notNull().defaultNow(),
@@ -199,6 +202,8 @@ export const insertIncidentSchema = createInsertSchema(incidents).pick({
   region: true,
   state: true,
   lga: true,
+  town: true,
+  incidentOccurredAt: true,
   severity: true,
   status: true,
   reportedBy: true,

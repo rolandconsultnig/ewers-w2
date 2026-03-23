@@ -34,6 +34,7 @@ import {
   Loader2,
   MapPin,
   Calendar,
+  Brain,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { Incident, User } from "@shared/schema";
@@ -116,6 +117,24 @@ export default function IncidentDetailPage() {
     },
     enabled: isCoordinatorOrAbove(user) && incidentId != null,
   });
+
+  const { data: recommendationsData, isLoading: loadingRecs, refetch: refetchRecs, isFetching: fetchingRecs } = useQuery({
+    queryKey: incidentId != null ? [`/api/ai/recommendations/${incidentId}`] : ["skip-ai-recs"],
+    queryFn: async () => {
+      if (incidentId == null) return null;
+      const res = await fetch(`/api/ai/recommendations/${incidentId}`, { credentials: "include" });
+      if (!res.ok) return { recommendations: null, unavailable: true };
+      return res.json();
+    },
+    enabled: incidentId != null && !Number.isNaN(incidentId),
+    retry: false,
+  });
+
+  const recommendations: string[] = Array.isArray(recommendationsData?.recommendations)
+    ? recommendationsData.recommendations
+    : typeof recommendationsData?.recommendations === "string"
+      ? recommendationsData.recommendations.split(/\n|(?:\d+\.)/).filter(Boolean).map((s: string) => s.trim()).filter(Boolean)
+      : [];
 
   const dispatchAgenciesMutation = useMutation({
     mutationFn: async () => {
@@ -288,7 +307,51 @@ export default function IncidentDetailPage() {
                     : "—"}
                 </span>
               </div>
+              {(incident as any).town && (
+                <div className="flex items-center gap-2 text-muted-foreground sm:col-span-2">
+                  <span className="font-medium text-foreground">Town:</span>
+                  <span>{(incident as any).town}</span>
+                </div>
+              )}
+              {(incident as any).incidentOccurredAt && (
+                <div className="flex items-center gap-2 text-muted-foreground sm:col-span-2">
+                  <span className="font-medium text-foreground">Incident occurred:</span>
+                  <span>{format(new Date((incident as any).incidentOccurredAt), "PPp")}</span>
+                </div>
+              )}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-blue-200 bg-blue-50/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <Brain className="h-5 w-5 text-blue-700" />
+                AI recommendations
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => refetchRecs()} disabled={loadingRecs || fetchingRecs}>
+                {fetchingRecs ? "Refreshing…" : "Refresh"}
+              </Button>
+            </CardTitle>
+            <CardDescription>Suggested response considerations for this incident</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {recommendations.length > 0 ? (
+              <ul className="list-disc list-inside text-sm space-y-1">
+                {recommendations.slice(0, 12).map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            ) : loadingRecs ? (
+              <p className="text-sm text-muted-foreground">Loading recommendations…</p>
+            ) : (recommendationsData as any)?.unavailable ? (
+              <p className="text-sm text-muted-foreground">
+                AI recommendations are not available (check AI service configuration). You can still use workflow actions below.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">No recommendations were returned for this incident.</p>
+            )}
           </CardContent>
         </Card>
 

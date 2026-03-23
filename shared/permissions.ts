@@ -24,7 +24,7 @@ export const PLATFORM_FEATURES: PlatformFeature[] = [
   { id: "ai_advisor", label: "Response Advisor", category: "AI Assistant" },
   { id: "peace_indicators", label: "Peace Opportunity Indicators", category: "AI Assistant" },
   // Data Management
-  { id: "data_collection", label: "Data Collection", category: "Data Management" },
+  { id: "data_collection", label: "Create Report", category: "Data Management" },
   { id: "data_processing", label: "Data Processing & Analysis", category: "Data Management" },
   { id: "collected_data", label: "Collected Data", category: "Data Management" },
   { id: "processed_data", label: "Processed Data", category: "Data Management" },

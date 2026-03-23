@@ -100,14 +100,19 @@ export default function PeaceTrackerDashboard() {
       const severity = incident.severity || 'low';
       severityCounts[severity] = (severityCounts[severity] || 0) + 1;
     });
+    // Aligned palette: red = active violence, orange = rising, yellow = moderate, green = stable
     return Object.entries(severityCounts).map(([severity, count]) => ({
       name: severity.charAt(0).toUpperCase() + severity.slice(1),
       value: count,
-      color: severity === 'critical' ? '#ef4444' :   // Red
-             severity === 'high' ? '#3b82f6' :       // Blue
-             severity === 'medium' ? '#6b7280' :     // Grey
-             '#22c55e'                               // Green (low)
+      color: severity === 'critical' ? '#dc2626' :
+             severity === 'high' ? '#ea580c' :
+             severity === 'medium' ? '#ca8a04' :
+             '#16a34a'
     }));
+  };
+
+  const scrollToCmdSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   // Get monthly trend data
@@ -260,9 +265,15 @@ export default function PeaceTrackerDashboard() {
         </div>
       </div>
 
-      {/* Key Metrics Overview */}
+      {/* Key Metrics Overview — each card jumps to a related dashboard section */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
-        <Card>
+        <Card
+          className="cursor-pointer transition-shadow hover:shadow-md hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          onClick={() => scrollToCmdSection("cmd-monthly-trends")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === "Enter" && scrollToCmdSection("cmd-monthly-trends")}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center">
               <Activity className="h-4 w-4 mr-2" />
@@ -278,7 +289,13 @@ export default function PeaceTrackerDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card
+          className="cursor-pointer transition-shadow hover:shadow-md hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          onClick={() => scrollToCmdSection("cmd-latest-reports")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === "Enter" && scrollToCmdSection("cmd-latest-reports")}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center">
               <AlertTriangle className="h-4 w-4 mr-2 text-red-500" />
@@ -291,7 +308,13 @@ export default function PeaceTrackerDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card
+          className="cursor-pointer transition-shadow hover:shadow-md hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          onClick={() => scrollToCmdSection("cmd-severity-distribution")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === "Enter" && scrollToCmdSection("cmd-severity-distribution")}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center">
               <Shield className="h-4 w-4 mr-2 text-orange-500" />
@@ -304,7 +327,13 @@ export default function PeaceTrackerDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card
+          className="cursor-pointer transition-shadow hover:shadow-md hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          onClick={() => scrollToCmdSection("cmd-reporting-methods")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === "Enter" && scrollToCmdSection("cmd-reporting-methods")}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center">
               <Mic className="h-4 w-4 mr-2 text-blue-500" />
@@ -317,7 +346,13 @@ export default function PeaceTrackerDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card
+          className="cursor-pointer transition-shadow hover:shadow-md hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          onClick={() => scrollToCmdSection("cmd-regional-distribution")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === "Enter" && scrollToCmdSection("cmd-regional-distribution")}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center">
               <Users className="h-4 w-4 mr-2 text-purple-500" />
@@ -332,7 +367,13 @@ export default function PeaceTrackerDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card
+          className="cursor-pointer transition-shadow hover:shadow-md hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          onClick={() => scrollToCmdSection("cmd-verification-status")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === "Enter" && scrollToCmdSection("cmd-verification-status")}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center">
               <Clock className="h-4 w-4 mr-2 text-green-500" />
@@ -385,7 +426,7 @@ export default function PeaceTrackerDashboard() {
 
       {/* AI Insights Section */}
       {aiInsights && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <div id="cmd-ai-insights" className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 scroll-mt-24">
           {aiInsights.patterns && (
             <Card>
               <CardHeader>
@@ -462,7 +503,7 @@ export default function PeaceTrackerDashboard() {
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <Card>
+        <Card id="cmd-monthly-trends" className="scroll-mt-24">
           <CardHeader>
             <CardTitle>Monthly Incident Trends</CardTitle>
           </CardHeader>
@@ -481,7 +522,7 @@ export default function PeaceTrackerDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card id="cmd-severity-distribution" className="scroll-mt-24">
           <CardHeader>
             <CardTitle>Severity Distribution</CardTitle>
           </CardHeader>
@@ -513,7 +554,7 @@ export default function PeaceTrackerDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card id="cmd-regional-distribution" className="scroll-mt-24">
           <CardHeader>
             <CardTitle>Regional Distribution</CardTitle>
           </CardHeader>
@@ -525,8 +566,11 @@ export default function PeaceTrackerDashboard() {
                   <div className="flex items-center gap-2">
                     <div className="w-20 bg-gray-200 rounded-full h-2">
                       <div 
-                        className="bg-blue-600 h-2 rounded-full" 
-                        style={{ width: `${(region.count / totalIncidents) * 100}%` }}
+                        className="h-2 rounded-full"
+                        style={{
+                          width: `${(region.count / totalIncidents) * 100}%`,
+                          backgroundColor: index === 0 ? "#dc2626" : index === 1 ? "#ea580c" : index === 2 ? "#ca8a04" : "#16a34a",
+                        }}
                       />
                     </div>
                     <span className="text-sm text-muted-foreground w-8">{region.count}</span>
@@ -540,7 +584,7 @@ export default function PeaceTrackerDashboard() {
 
       {/* Additional Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <Card>
+        <Card id="cmd-reporting-methods" className="scroll-mt-24">
           <CardHeader>
             <CardTitle>Reporting Methods</CardTitle>
           </CardHeader>
@@ -564,7 +608,7 @@ export default function PeaceTrackerDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card id="cmd-verification-status" className="scroll-mt-24">
           <CardHeader>
             <CardTitle>Verification Status</CardTitle>
           </CardHeader>
@@ -595,7 +639,7 @@ export default function PeaceTrackerDashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <Card>
+        <Card id="cmd-latest-reports" className="scroll-mt-24">
           <CardHeader>
             <CardTitle>Latest Incident Reports</CardTitle>
           </CardHeader>
@@ -626,7 +670,21 @@ export default function PeaceTrackerDashboard() {
                           </div>
                         </td>
                         <td className="py-3 px-4">{report.location}</td>
-                        <td className="py-3 px-4">{report.severity}</td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`text-xs font-medium px-2 py-1 rounded-full capitalize ${
+                              report.severity === "critical"
+                                ? "bg-red-100 text-red-800"
+                                : report.severity === "high"
+                                ? "bg-orange-100 text-orange-800"
+                                : report.severity === "medium"
+                                ? "bg-yellow-100 text-yellow-800"
+                                : "bg-green-100 text-green-800"
+                            }`}
+                          >
+                            {report.severity}
+                          </span>
+                        </td>
                         <td className="py-3 px-4">
                           <span
                             className={`px-2 py-1 rounded-full text-xs ${

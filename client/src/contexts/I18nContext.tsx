@@ -73,7 +73,7 @@ const translations: Translations = {
 
     "layout.sidebar.mainNavigation": "Main Navigation",
     "layout.sidebar.aiAssistant": "AI Assistant",
-    "layout.sidebar.dataCollection": "Data Collection & Processing",
+    "layout.sidebar.dataCollection": "Create Report & Processing",
     "layout.sidebar.dataManagement": "Data Management",
     "layout.sidebar.riskAssessment": "Risk Assessment",
     "layout.sidebar.responseManagement": "Response Management",
@@ -93,7 +93,7 @@ const translations: Translations = {
     "nav.aiAnalysis": "AI Analysis",
     "nav.predictiveModels": "Predictive Models",
     "nav.responseAdvisor": "Response Advisor",
-    "nav.dataCollection": "Data Collection",
+    "nav.dataCollection": "Create Report",
     "nav.dataProcessing": "Data Processing & Analysis",
     "nav.riskAssessment": "Risk Assessment",
     "nav.visualization": "Visualization",

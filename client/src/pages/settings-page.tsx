@@ -1230,7 +1230,7 @@ export default function SettingsPage() {
                       <div className="p-4 border rounded-md">
                         <div className="flex items-center mb-2">
                           <Database className="h-5 w-5 text-primary mr-2" />
-                          <h4 className="font-medium">Data Collection</h4>
+                          <h4 className="font-medium">Create Report</h4>
                         </div>
                         <p className="text-sm text-neutral-600">
                           Collects data from multiple sources

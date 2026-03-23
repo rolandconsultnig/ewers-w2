@@ -1,4 +1,5 @@
-import { db } from './db';
+import "dotenv/config";
+import { db } from "./db";
 import { incidents } from '@shared/schema';
 
 // Nigerian states and their coordinates

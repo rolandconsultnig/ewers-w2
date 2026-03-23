@@ -98,13 +98,24 @@ export default function SearchPage() {
   };
 
   const navigateTo = (r: SearchResult) => {
-    if (r.type === "incident") setLocation(`/incidents?incident=${r.id}`);
-    else if (r.type === "alert") setLocation(`/alerts?alert=${r.id}`);
+    if (r.type === "incident") setLocation(`/incidents/${r.id}`);
+    else if (r.type === "alert") setLocation(`/alerts`);
     else if (r.type === "dataSource") setLocation(`/data-collection`);
     else if (r.type === "user") setLocation(`/user-management`);
   };
 
-  const globalResults = globalSearchMutation.data?.results;
+  const flattenGlobalResults = (data: typeof globalSearchMutation.data): SearchResult[] => {
+    if (!data?.results || typeof data.results !== "object") return [];
+    const bucket = data.results as Record<string, SearchResult[]>;
+    return [
+      ...(bucket.incidents ?? []),
+      ...(bucket.alerts ?? []),
+      ...(bucket.dataSources ?? []),
+      ...(bucket.users ?? []),
+    ];
+  };
+
+  const globalResultList = flattenGlobalResults(globalSearchMutation.data);
   const incidentResults = incidentSearchMutation.data?.results || [];
   const alertResults = alertSearchMutation.data?.results || [];
 
@@ -139,13 +150,20 @@ export default function SearchPage() {
                     {globalSearchMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                   </Button>
                 </form>
+                {globalSearchMutation.isError && (
+                  <p className="text-sm text-destructive">
+                    {(globalSearchMutation.error as Error)?.message || "Search failed. Check you are signed in and try again."}
+                  </p>
+                )}
                 {globalSearchMutation.data && (
                   <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">
                       Found {globalSearchMutation.data.totalResults} results
                     </p>
-                    {Object.entries(globalSearchMutation.data.results || {}).map(([key, items]: [string, any]) =>
-                      (items || []).map((r: SearchResult) => (
+                    {globalResultList.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No matches. Try different keywords.</p>
+                    ) : (
+                      globalResultList.map((r: SearchResult) => (
                         <div
                           key={`${r.type}-${r.id}`}
                           className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 cursor-pointer"

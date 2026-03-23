@@ -546,8 +546,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!body.location) {
-        const parts = [body.lga, body.state, body.region].filter(Boolean);
+        const parts = [body.town, body.lga, body.state, body.region].filter(Boolean);
         if (parts.length > 0) body.location = parts.join(", ");
+      }
+
+      if (body.incidentOccurredAt != null && typeof body.incidentOccurredAt === "string") {
+        const d = new Date(body.incidentOccurredAt);
+        body.incidentOccurredAt = Number.isNaN(d.getTime()) ? undefined : d;
       }
 
       const validatedData = insertIncidentSchema.parse(body);
@@ -1515,7 +1520,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Extract the necessary incident data from the request
       const { 
         title, description, location, region, actorType, actorName,
-        contactName, contactEmail, contactPhone, category, state, lga
+        contactName, contactEmail, contactPhone, category, state, lga,
+        town, incidentOccurredAt, lat, lng,
       } = req.body;
 
       const users = await storage.getAllUsers();
@@ -1524,9 +1530,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "No system user exists to attribute public reports" });
       }
 
+      const latN = lat != null ? Number(lat) : NaN;
+      const lngN = lng != null ? Number(lng) : NaN;
       const coordinates = {
-        lat: 0,
-        lng: 0,
+        lat: Number.isFinite(latN) ? latN : 0,
+        lng: Number.isFinite(lngN) ? lngN : 0,
         address: location,
         reporterInfo: {
           name: contactName,
@@ -1540,6 +1548,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       
       // Format the data to match the incident schema
+      let occurred: Date | undefined;
+      if (typeof incidentOccurredAt === "string" && incidentOccurredAt.trim()) {
+        const d = new Date(incidentOccurredAt);
+        if (!Number.isNaN(d.getTime())) occurred = d;
+      }
+
       const incidentData = {
         title,
         description,
@@ -1547,6 +1561,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         region,
         state: typeof state === "string" ? state : undefined,
         lga: typeof lga === "string" ? lga : undefined,
+        town: typeof town === "string" ? town : undefined,
+        incidentOccurredAt: occurred,
         severity: "medium", // Default severity for public reports
         status: "pending", // Incidents from public start as pending
         category: category || "conflict", // Default category
