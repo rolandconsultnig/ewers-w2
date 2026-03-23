@@ -33,6 +33,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 // CORS - tighten to known web origins, but allow native/mobile (no Origin header)
+// If you set CORS_ALLOWED_ORIGINS, include every browser origin (e.g. https://cewers.com.ng,https://www.cewers.com.ng).
+// Using callback(Error) here caused Express to return 500 for disallowed origins; use allow=false instead.
 const allowedOrigins =
   (process.env.CORS_ALLOWED_ORIGINS || "")
     .split(",")
@@ -49,7 +51,8 @@ app.use(
       if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
-      return callback(new Error("Not allowed by CORS"));
+      console.warn(`[cors] Blocked origin (add to CORS_ALLOWED_ORIGINS): ${origin}`);
+      return callback(null, false);
     },
     credentials: true,
   })

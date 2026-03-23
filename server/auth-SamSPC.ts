@@ -78,21 +78,34 @@ async function hashPassword(password: string) {
 }
 
 async function comparePasswords(supplied: string, stored: string) {
-  const [hashed, salt] = stored.split(".");
-  const hashedBuf = Buffer.from(hashed, "hex");
-  const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-  return timingSafeEqual(hashedBuf, suppliedBuf);
+  try {
+    if (!stored || !stored.includes(".")) return false;
+    const [hashed, salt] = stored.split(".");
+    if (!hashed || !salt) return false;
+    const hashedBuf = Buffer.from(hashed, "hex");
+    const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+    if (hashedBuf.length !== suppliedBuf.length) return false;
+    return timingSafeEqual(hashedBuf, suppliedBuf);
+  } catch {
+    return false;
+  }
 }
 
 export function setupAuth(app: Express) {
   // In production, cookie.secure=true so browser only sends cookie over HTTPS.
   // If your app is behind HTTP (no SSL), set COOKIE_SECURE=false in .env so login/session work.
   const cookieSecure = process.env.COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production';
+  const forceMemorySession =
+    process.env.FORCE_MEMORY_SESSION === "1" || process.env.USE_MEMORY_SESSION === "1";
+  const sessionStore = forceMemorySession ? new session.MemoryStore() : storage.sessionStore;
+  if (forceMemorySession) {
+    console.warn("[auth] Using in-memory session store (FORCE_MEMORY_SESSION).");
+  }
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET || 'ewers-secret-key',
     resave: false,
     saveUninitialized: false,
-    store: storage.sessionStore,
+    store: sessionStore,
     cookie: {
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       secure: cookieSecure,
@@ -246,15 +259,39 @@ export function setupAuth(app: Express) {
   ) => {
     passport.authenticate("local", (err: Error | null, user: SelectUser | false, info: { message?: string }) => {
       if (err) {
-        return res.status(500).json({ error: info?.message || "Authentication error" });
+        console.error("[auth] /api/login strategy error:", err);
+        return res.status(500).json({
+          error:
+            process.env.NODE_ENV === "production"
+              ? "Server error during login. Check database connectivity and server logs."
+              : err.message || "Authentication error",
+        });
       }
       if (!user) {
         return res.status(401).json({ error: info?.message || "Invalid username or password" });
       }
       req.login(user, (loginErr) => {
-        if (loginErr) return next(loginErr);
-        const token = generateJWT(user);
-        res.status(200).json({ user: toSafeUser(user), token });
+        if (loginErr) {
+          console.error("[auth] req.login / session store error:", loginErr);
+          return res.status(500).json({
+            error:
+              process.env.NODE_ENV === "production"
+                ? "Could not create session. Ensure the `session` table exists or set FORCE_MEMORY_SESSION=1 temporarily."
+                : (loginErr as Error).message,
+          });
+        }
+        try {
+          const token = generateJWT(user);
+          res.status(200).json({ user: toSafeUser(user), token });
+        } catch (jwtErr) {
+          console.error("[auth] JWT sign error:", jwtErr);
+          return res.status(500).json({
+            error:
+              process.env.NODE_ENV === "production"
+                ? "Login succeeded but token could not be issued. Check JWT_SECRET / SESSION_SECRET."
+                : (jwtErr as Error).message,
+          });
+        }
       });
     })(req, res, next);
   };

@@ -76,10 +76,17 @@ async function hashPassword(password: string) {
 }
 
 async function comparePasswords(supplied: string, stored: string) {
-  const [hashed, salt] = stored.split(".");
-  const hashedBuf = Buffer.from(hashed, "hex");
-  const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-  return timingSafeEqual(hashedBuf, suppliedBuf);
+  try {
+    if (!stored || !stored.includes(".")) return false;
+    const [hashed, salt] = stored.split(".");
+    if (!hashed || !salt) return false;
+    const hashedBuf = Buffer.from(hashed, "hex");
+    const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+    if (hashedBuf.length !== suppliedBuf.length) return false;
+    return timingSafeEqual(hashedBuf, suppliedBuf);
+  } catch {
+    return false;
+  }
 }
 
 export function setupAuth(app: Express) {
@@ -88,11 +95,19 @@ export function setupAuth(app: Express) {
   const cookieSecure = process.env.COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production';
   // In development, use in-memory session by default so app works without a session table.
   // Set USE_PG_SESSION=1 to use Postgres session store in development.
+  // Set FORCE_MEMORY_SESSION=1 in production to bypass Postgres session store (e.g. if `session` table fails).
+  const forceMemorySession =
+    process.env.FORCE_MEMORY_SESSION === "1" || process.env.USE_MEMORY_SESSION === "1";
   const useMemorySession =
-    process.env.NODE_ENV === "development" && process.env.USE_PG_SESSION !== "1";
+    forceMemorySession ||
+    (process.env.NODE_ENV === "development" && process.env.USE_PG_SESSION !== "1");
   const sessionStore = useMemorySession ? new session.MemoryStore() : storage.sessionStore;
   if (useMemorySession) {
-    console.warn("[auth] Using in-memory session store (dev). Sessions reset on server restart. Set USE_PG_SESSION=1 to use Postgres.");
+    console.warn(
+      forceMemorySession
+        ? "[auth] Using in-memory session store (FORCE_MEMORY_SESSION). Remove after fixing Postgres session store."
+        : "[auth] Using in-memory session store (dev). Set USE_PG_SESSION=1 for Postgres.",
+    );
   }
 
   const sessionSettings: session.SessionOptions = {
@@ -287,15 +302,39 @@ export function setupAuth(app: Express) {
   ) => {
     passport.authenticate("local", (err: Error | null, user: SelectUser | false, info: { message?: string }) => {
       if (err) {
-        return res.status(500).json({ error: info?.message || "Authentication error" });
+        console.error("[auth] /api/login strategy error:", err);
+        return res.status(500).json({
+          error:
+            process.env.NODE_ENV === "production"
+              ? "Server error during login. Check database connectivity and server logs."
+              : err.message || "Authentication error",
+        });
       }
       if (!user) {
         return res.status(401).json({ error: info?.message || "Invalid username or password" });
       }
       req.login(user, (loginErr) => {
-        if (loginErr) return next(loginErr);
-        const token = generateJWT(user);
-        res.status(200).json({ user: toSafeUser(user), token });
+        if (loginErr) {
+          console.error("[auth] req.login / session store error:", loginErr);
+          return res.status(500).json({
+            error:
+              process.env.NODE_ENV === "production"
+                ? "Could not create session. If using Postgres sessions, ensure the `session` table exists or set FORCE_MEMORY_SESSION=1 temporarily."
+                : (loginErr as Error).message,
+          });
+        }
+        try {
+          const token = generateJWT(user);
+          res.status(200).json({ user: toSafeUser(user), token });
+        } catch (jwtErr) {
+          console.error("[auth] JWT sign error:", jwtErr);
+          return res.status(500).json({
+            error:
+              process.env.NODE_ENV === "production"
+                ? "Login succeeded but token could not be issued. Check JWT_SECRET / SESSION_SECRET."
+                : (jwtErr as Error).message,
+          });
+        }
       });
     })(req, res, next);
   };
