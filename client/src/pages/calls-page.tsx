@@ -69,6 +69,8 @@ export default function CallsPage() {
   const initiatorPcRef = useRef<RTCPeerConnection | null>(null);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const screenTrackRef = useRef<MediaStreamTrack | null>(null);
+  const [knownActiveCallIds, setKnownActiveCallIds] = useState<number[]>([]);
+  const didInitActiveCallsRef = useRef(false);
 
   const { data: conversations = [] } = useQuery({
     queryKey: ["/api/conversations"],
@@ -86,6 +88,9 @@ export default function CallsPage() {
       return res.json();
     },
     enabled: !!user && !activeCall,
+    // Keep the "Active calls" list updated so other users can see incoming calls.
+    refetchInterval: !!user && !activeCall ? 5000 : false,
+    refetchIntervalInBackground: true,
   });
 
   const startCallMutation = useMutation({
@@ -197,6 +202,49 @@ export default function CallsPage() {
     initiatorPcRef.current = null;
     pcMapRef.current.set(peerKey, pc);
   }, []);
+
+  // Incoming call UX:
+  // When a new active call appears, open the Join dialog and notify the user.
+  useEffect(() => {
+    if (!user) return;
+    if (activeCall) return; // already in a call
+    if (joinCallOpen) return;
+    if (startCallOpen) return;
+
+    const ids = activeCalls.map((c: { id: number }) => c.id);
+
+    // On first load, just initialize the known set and don't auto-popup.
+    if (!didInitActiveCallsRef.current) {
+      setKnownActiveCallIds(ids);
+      didInitActiveCallsRef.current = true;
+      return;
+    }
+
+    const known = new Set(knownActiveCallIds);
+    const newlyDiscovered = ids.filter((id) => !known.has(id));
+    if (newlyDiscovered.length === 0) return;
+
+    // Update known set first to avoid repeated triggers.
+    setKnownActiveCallIds(ids);
+
+    const nextId = newlyDiscovered[0];
+    setJoinCallId(String(nextId));
+    setJoinCallOpen(true);
+
+    const nextCall = activeCalls.find((c: { id: number }) => c.id === nextId);
+    toast({
+      title: "Incoming call",
+      description: `Call #${nextId} (${nextCall?.type ?? "video"}) is ready. Join to receive the connection.`,
+    });
+  }, [
+    user,
+    activeCalls,
+    activeCall,
+    joinCallOpen,
+    startCallOpen,
+    knownActiveCallIds,
+    toast,
+  ]);
 
   useEffect(() => {
     if (!activeCall) return;
