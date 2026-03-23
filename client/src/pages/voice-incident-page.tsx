@@ -1,4 +1,4 @@
-import { ChangeEvent, useState } from "react";
+import { ChangeEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -70,6 +70,43 @@ export default function VoiceIncidentPage() {
       category: "conflict",
     },
   });
+
+  const nigeriaRegions: Record<string, string[]> = {
+    "North Central": ["Benue", "Kogi", "Kwara", "Nasarawa", "Niger", "Plateau", "FCT"],
+    "North East": ["Adamawa", "Bauchi", "Borno", "Gombe", "Taraba", "Yobe"],
+    "North West": ["Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Sokoto", "Zamfara"],
+    "South East": ["Abia", "Anambra", "Ebonyi", "Enugu", "Imo"],
+    "South South": ["Akwa Ibom", "Bayelsa", "Cross River", "Delta", "Edo", "Rivers"],
+    "South West": ["Ekiti", "Lagos", "Ogun", "Ondo", "Osun", "Oyo"],
+  };
+
+  const selectedRegion = form.watch("region");
+  const selectedState = form.watch("state");
+
+  useEffect(() => {
+    if (!selectedState) return;
+    const allowed = nigeriaRegions[selectedRegion as keyof typeof nigeriaRegions] ?? [];
+    if (selectedState && !allowed.includes(selectedState)) {
+      form.setValue("state", "", { shouldDirty: true, shouldValidate: true });
+    }
+  }, [selectedRegion, selectedState, form]);
+
+  // Load LGA options based on the selected state.
+  const { data: lgaOptions = [], isLoading: loadingLgaOptions } = useQuery<string[]>({
+    queryKey: ["/api/lga-options", selectedState],
+    enabled: typeof selectedState === "string" && selectedState.trim().length > 0,
+    queryFn: async () => {
+      const state = selectedState ?? "";
+      const res = await fetch(`/api/lga-options?state=${encodeURIComponent(state)}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load LGA options");
+      return (await res.json()) as string[];
+    },
+  });
+
+  // If the selected state changes, clear LGA so the user doesn't submit an invalid combination.
+  useEffect(() => {
+    form.setValue("lga", "", { shouldDirty: true, shouldValidate: true });
+  }, [selectedState, form]);
 
   const submitVoiceIncidentMutation = useMutation({
     mutationFn: async (data: VoiceIncidentFormValues & { audioFile: Blob | File }) => {
@@ -315,13 +352,37 @@ export default function VoiceIncidentPage() {
 
                     <FormField
                       control={form.control}
-                      name="state"
+                      name="lga"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>State (Optional)</FormLabel>
-                          <FormControl>
-                            <Input placeholder="e.g., FCT" {...field} />
-                          </FormControl>
+                          <FormLabel>LGA (Optional)</FormLabel>
+                          <Select
+                            onValueChange={(v) => field.onChange(v)}
+                            value={field.value ?? ""}
+                            disabled={!selectedState}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={selectedState ? "Select an LGA" : "Select a state first"}
+                                />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="">Not specified</SelectItem>
+                              {loadingLgaOptions ? (
+                                <SelectItem value="" disabled>
+                                  Loading...
+                                </SelectItem>
+                              ) : (
+                                lgaOptions.map((lga) => (
+                                  <SelectItem key={lga} value={lga}>
+                                    {lga}
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -329,13 +390,29 @@ export default function VoiceIncidentPage() {
 
                     <FormField
                       control={form.control}
-                      name="lga"
+                      name="state"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>LGA (Optional)</FormLabel>
-                          <FormControl>
-                            <Input placeholder="e.g., Abuja Municipal" {...field} />
-                          </FormControl>
+                          <FormLabel>State (Optional)</FormLabel>
+                          <Select
+                            onValueChange={(v) => field.onChange(v)}
+                            defaultValue={field.value ?? ""}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select a state" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="">Not specified</SelectItem>
+                              {selectedRegion &&
+                                nigeriaRegions[selectedRegion]?.map((s) => (
+                                  <SelectItem key={s} value={s}>
+                                    {s}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
                           <FormMessage />
                         </FormItem>
                       )}

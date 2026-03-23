@@ -6,6 +6,12 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 import type { IStorage } from "../storage";
+import {
+  CONFLICT_INDICATORS_SETTING_CATEGORY,
+  CONFLICT_INDICATORS_SETTING_KEY,
+  DEFAULT_CONFLICT_INDICATOR_CONFIG,
+  type ConflictIndicatorConfig,
+} from "./conflict-nlp-service";
 
 interface ScrapedContent {
   title: string;
@@ -30,18 +36,18 @@ const NEWS_SOURCES = [
   { url: "https://humanglemedia.com", name: "HumAngle" },
 ];
 
-// Conflict-related keywords for filtering
-const CONFLICT_KEYWORDS = [
-  "boko haram", "bandit", "kidnap", "abduct", "attack", "kill", "shoot", "bomb",
-  "violence", "clash", "conflict", "crisis", "insurgent", "terrorist", "militant",
-  "protest", "riot", "unrest", "tension", "ethnic", "communal", "farmer", "herder",
-  "iswap", "ansaru", "ipp", "security", "military", "police", "army", "gunmen",
-  "armed", "weapon", "casualty", "death", "injur", "displace", "refugee", "idp",
-  "sgbv", "rape", "assault", "gender-based violence", "human rights"
-];
+function flattenIndicators(cfg: ConflictIndicatorConfig): string[] {
+  return [...cfg.violence, ...cfg.tension, ...cfg.peace, ...cfg.humanitarian].map((s) => s.toLowerCase());
+}
+
+const DEFAULT_CONFLICT_KEYWORDS = Array.from(new Set(flattenIndicators(DEFAULT_CONFLICT_INDICATOR_CONFIG)));
 
 export class WebScraperService {
   private storage: IStorage;
+  private cachedConflictKeywords: string[] | null = null;
+  private cachedConflictKeywordsLoadedAt = 0;
+  private conflictKeywordsLoadPromise: Promise<string[]> | null = null;
+  private static readonly CONFLICT_KEYWORDS_CACHE_TTL_MS = 10_000;
 
   constructor(storage: IStorage) {
     this.storage = storage;
@@ -50,17 +56,66 @@ export class WebScraperService {
   /**
    * Check if content is conflict-related
    */
-  private isConflictRelated(text: string): boolean {
+  private isConflictRelated(text: string, keywords: string[]): boolean {
     const lowerText = text.toLowerCase();
-    return CONFLICT_KEYWORDS.some(keyword => lowerText.includes(keyword));
+    return keywords.some((keyword) => lowerText.includes(keyword));
   }
 
   /**
    * Extract conflict indicators from text
    */
-  private extractConflictIndicators(text: string): string[] {
+  private extractConflictIndicators(text: string, keywords: string[]): string[] {
     const lowerText = text.toLowerCase();
-    return CONFLICT_KEYWORDS.filter(keyword => lowerText.includes(keyword));
+    return keywords.filter((keyword) => lowerText.includes(keyword));
+  }
+
+  private normalizeIndicators(input: unknown): string[] {
+    if (!Array.isArray(input)) return [];
+    return input.map((v) => (typeof v === "string" ? v.trim().toLowerCase() : "")).filter(Boolean);
+  }
+
+  private async getConflictKeywords(): Promise<string[]> {
+    const now = Date.now();
+    if (
+      this.cachedConflictKeywords &&
+      now - this.cachedConflictKeywordsLoadedAt < WebScraperService.CONFLICT_KEYWORDS_CACHE_TTL_MS
+    ) {
+      return this.cachedConflictKeywords;
+    }
+
+    if (this.conflictKeywordsLoadPromise) return this.conflictKeywordsLoadPromise;
+
+    this.conflictKeywordsLoadPromise = (async () => {
+      const row = await this.storage.getSettingByKey(
+        CONFLICT_INDICATORS_SETTING_CATEGORY,
+        CONFLICT_INDICATORS_SETTING_KEY,
+      );
+      const storedValue = row?.value as any;
+
+      const defaults = DEFAULT_CONFLICT_INDICATOR_CONFIG;
+      const violence =
+        storedValue && "violence" in storedValue ? this.normalizeIndicators(storedValue.violence) : defaults.violence;
+      const tension =
+        storedValue && "tension" in storedValue ? this.normalizeIndicators(storedValue.tension) : defaults.tension;
+      const peace = storedValue && "peace" in storedValue ? this.normalizeIndicators(storedValue.peace) : defaults.peace;
+      const humanitarian =
+        storedValue && "humanitarian" in storedValue
+          ? this.normalizeIndicators(storedValue.humanitarian)
+          : defaults.humanitarian;
+
+      const cfg: ConflictIndicatorConfig = { violence, tension, peace, humanitarian };
+      const keywords = Array.from(new Set(flattenIndicators(cfg)));
+
+      this.cachedConflictKeywords = keywords;
+      this.cachedConflictKeywordsLoadedAt = Date.now();
+      this.conflictKeywordsLoadPromise = null;
+      return keywords;
+    })().catch(() => {
+      this.conflictKeywordsLoadPromise = null;
+      return DEFAULT_CONFLICT_KEYWORDS;
+    });
+
+    return this.conflictKeywordsLoadPromise;
   }
 
   /**
@@ -68,6 +123,7 @@ export class WebScraperService {
    */
   async scrapeNewsSource(sourceUrl: string, sourceName: string): Promise<ScrapedContent[]> {
     try {
+      const keywords = await this.getConflictKeywords();
       const response = await axios.get(sourceUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -85,7 +141,7 @@ export class WebScraperService {
         const content = $article.find('p, .excerpt, .summary').first().text().trim();
         const link = $article.find('a').first().attr('href') || '';
         
-        if (title && content && this.isConflictRelated(title + ' ' + content)) {
+        if (title && content && this.isConflictRelated(title + " " + content, keywords)) {
           articles.push({
             title,
             content,
@@ -93,7 +149,7 @@ export class WebScraperService {
             source: sourceName,
             publishedAt: new Date(),
             category: 'conflict',
-            conflictIndicators: this.extractConflictIndicators(title + ' ' + content),
+            conflictIndicators: this.extractConflictIndicators(title + " " + content, keywords),
           });
         }
       });
@@ -120,6 +176,7 @@ export class WebScraperService {
    */
   async scrapeReddit(): Promise<ScrapedContent[]> {
     try {
+      const keywords = await this.getConflictKeywords();
       const subreddits = ['Nigeria', 'africannews', 'worldnews'];
       const articles: ScrapedContent[] = [];
 
@@ -139,7 +196,7 @@ export class WebScraperService {
         
         for (const post of posts) {
           const data = post.data;
-          if (this.isConflictRelated(data.title + ' ' + (data.selftext || ''))) {
+          if (this.isConflictRelated(data.title + ' ' + (data.selftext || ''), keywords)) {
             articles.push({
               title: data.title,
               content: data.selftext || data.title,
@@ -147,7 +204,7 @@ export class WebScraperService {
               source: `Reddit r/${subreddit}`,
               publishedAt: new Date(data.created_utc * 1000),
               category: 'social_media',
-              conflictIndicators: this.extractConflictIndicators(data.title + ' ' + data.selftext),
+              conflictIndicators: this.extractConflictIndicators(data.title + ' ' + data.selftext, keywords),
             });
           }
         }

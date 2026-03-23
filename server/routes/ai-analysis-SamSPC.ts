@@ -29,7 +29,7 @@ export function setupAIAnalysisRoutes(app: Router, storage: IStorage) {
     }
 
     try {
-      const analysis = conflictNLPService.analyzeConflict(text);
+      const analysis = await conflictNLPService.analyzeConflict(text);
       res.json(analysis);
     } catch (error) {
       console.error("Error analyzing conflict:", error);
@@ -48,7 +48,7 @@ export function setupAIAnalysisRoutes(app: Router, storage: IStorage) {
     }
 
     try {
-      const screening = conflictNLPService.screenStatement(statement);
+      const screening = await conflictNLPService.screenStatement(statement);
       res.json(screening);
     } catch (error) {
       console.error("Error screening statement:", error);
@@ -67,7 +67,7 @@ export function setupAIAnalysisRoutes(app: Router, storage: IStorage) {
     }
 
     try {
-      const analyses = conflictNLPService.batchAnalyze(texts);
+      const analyses = await conflictNLPService.batchAnalyze(texts);
       res.json(analyses);
     } catch (error) {
       console.error("Error batch analyzing:", error);
@@ -86,7 +86,7 @@ export function setupAIAnalysisRoutes(app: Router, storage: IStorage) {
     }
 
     try {
-      const events = conflictNLPService.extractConflictEvents(text);
+      const events = await conflictNLPService.extractConflictEvents(text);
       res.json(events);
     } catch (error) {
       console.error("Error extracting events:", error);
@@ -145,18 +145,18 @@ export function setupAIAnalysisRoutes(app: Router, storage: IStorage) {
         .slice(0, limit);
 
       // Analyze each item
-      const analyzed = webScraperData.map(item => {
+      const analyzed = await Promise.all(webScraperData.map(async (item) => {
         const content = typeof item.content === 'object' && item.content !== null
           ? JSON.stringify(item.content)
           : String(item.content || '');
         
-        const analysis = conflictNLPService.analyzeConflict(content);
+        const analysis = await conflictNLPService.analyzeConflict(content);
         
         return {
           ...item,
           analysis,
         };
-      });
+      }));
 
       res.json(analyzed);
     } catch (error) {
@@ -183,7 +183,7 @@ export function setupAIAnalysisRoutes(app: Router, storage: IStorage) {
           ? JSON.stringify(item.content)
           : String(item.content || '');
         
-        const screening = conflictNLPService.screenStatement(content);
+        const screening = await conflictNLPService.screenStatement(content);
 
         if (screening.confidence >= minConfidence && screening.recommendation === "accept") {
           // Extract title and description

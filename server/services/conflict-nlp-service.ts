@@ -5,10 +5,21 @@
 
 import natural from "natural";
 import Sentiment from "sentiment";
+import { storage } from "../storage";
 
 const sentiment = new Sentiment();
 const tokenizer = new natural.WordTokenizer();
 const TfIdf = natural.TfIdf;
+
+export const CONFLICT_INDICATORS_SETTING_CATEGORY = "conflict_indicators";
+export const CONFLICT_INDICATORS_SETTING_KEY = "dictionary";
+
+export interface ConflictIndicatorConfig {
+  violence: string[];
+  tension: string[];
+  peace: string[];
+  humanitarian: string[];
+}
 
 interface ConflictAnalysis {
   conflictScore: number; // 0-100, higher = more conflict
@@ -34,16 +45,19 @@ interface ConflictAnalysis {
 }
 
 // Conflict indicator dictionaries
-const VIOLENCE_INDICATORS = [
+export const DEFAULT_VIOLENCE_INDICATORS = [
+  "violence",
   "kill", "killed", "death", "dead", "murder", "slaughter", "massacre",
   "shoot", "shot", "gun", "weapon", "armed", "bomb", "explosion", "blast",
   "attack", "assault", "raid", "ambush", "strike", "offensive",
-  "boko haram", "iswap", "ansaru", "bandit", "terrorist", "insurgent", "militant",
+  "boko haram", "iswap", "ansaru", "bandit", "terrorist", "insurgent", "militant", "ipp",
   "kidnap", "abduct", "hostage", "ransom", "captive",
-  "rape", "sexual violence", "sgbv", "assault", "abuse"
+  "rape", "sexual violence", "gender-based violence", "sgbv", "assault", "abuse",
+  "security", "military", "police", "army", "gunmen",
+  "casualty", "injur",
 ];
 
-const TENSION_INDICATORS = [
+export const DEFAULT_TENSION_INDICATORS = [
   "tension", "unrest", "protest", "demonstration", "riot", "clash",
   "conflict", "dispute", "confrontation", "standoff",
   "ethnic", "communal", "sectarian", "religious",
@@ -51,20 +65,29 @@ const TENSION_INDICATORS = [
   "crisis", "emergency", "alert", "warning"
 ];
 
-const PEACE_INDICATORS = [
+export const DEFAULT_PEACE_INDICATORS = [
   "peace", "peaceful", "reconciliation", "dialogue", "negotiation",
   "ceasefire", "truce", "agreement", "treaty", "accord",
   "mediation", "resolution", "settlement", "cooperation",
   "stability", "calm", "de-escalation", "disarmament"
 ];
 
-const HUMANITARIAN_INDICATORS = [
+export const DEFAULT_HUMANITARIAN_INDICATORS = [
   "displaced", "refugee", "idp", "camp", "shelter",
   "humanitarian", "aid", "relief", "assistance",
+  "displace",
   "food security", "malnutrition", "hunger", "famine",
   "health", "medical", "clinic", "hospital",
-  "water", "sanitation", "hygiene"
+  "water", "sanitation", "hygiene",
+  "human rights"
 ];
+
+export const DEFAULT_CONFLICT_INDICATOR_CONFIG: ConflictIndicatorConfig = {
+  violence: DEFAULT_VIOLENCE_INDICATORS,
+  tension: DEFAULT_TENSION_INDICATORS,
+  peace: DEFAULT_PEACE_INDICATORS,
+  humanitarian: DEFAULT_HUMANITARIAN_INDICATORS,
+};
 
 // Nigerian locations
 const NIGERIAN_LOCATIONS = [
@@ -83,12 +106,69 @@ const ARMED_GROUPS = [
 ];
 
 export class ConflictNLPService {
+  private cachedIndicatorConfig: ConflictIndicatorConfig | null = null;
+  private cachedIndicatorConfigLoadedAt = 0;
+  private indicatorConfigLoadPromise: Promise<ConflictIndicatorConfig> | null = null;
+  private static readonly INDICATOR_CONFIG_CACHE_TTL_MS = 10_000;
+
+  private normalizeIndicators(input: unknown): string[] {
+    if (!Array.isArray(input)) return [];
+    return input
+      .map((v) => (typeof v === "string" ? v.trim().toLowerCase() : ""))
+      .filter(Boolean);
+  }
+
+  private async getIndicatorConfig(): Promise<ConflictIndicatorConfig> {
+    const now = Date.now();
+    if (
+      this.cachedIndicatorConfig &&
+      now - this.cachedIndicatorConfigLoadedAt < ConflictNLPService.INDICATOR_CONFIG_CACHE_TTL_MS
+    ) {
+      return this.cachedIndicatorConfig;
+    }
+
+    if (this.indicatorConfigLoadPromise) return this.indicatorConfigLoadPromise;
+
+    this.indicatorConfigLoadPromise = (async () => {
+      const row = await storage.getSettingByKey(CONFLICT_INDICATORS_SETTING_CATEGORY, CONFLICT_INDICATORS_SETTING_KEY);
+      const storedValue = row?.value as any;
+
+      const defaults = DEFAULT_CONFLICT_INDICATOR_CONFIG;
+      const violence = storedValue && "violence" in storedValue ? this.normalizeIndicators(storedValue.violence) : defaults.violence;
+      const tension = storedValue && "tension" in storedValue ? this.normalizeIndicators(storedValue.tension) : defaults.tension;
+      const peace = storedValue && "peace" in storedValue ? this.normalizeIndicators(storedValue.peace) : defaults.peace;
+      const humanitarian =
+        storedValue && "humanitarian" in storedValue
+          ? this.normalizeIndicators(storedValue.humanitarian)
+          : defaults.humanitarian;
+
+      const config: ConflictIndicatorConfig = {
+        violence,
+        tension,
+        peace,
+        humanitarian,
+      };
+
+      this.cachedIndicatorConfig = config;
+      this.cachedIndicatorConfigLoadedAt = Date.now();
+      this.indicatorConfigLoadPromise = null;
+      return config;
+    })().catch((e) => {
+      // If settings aren't available, keep the service working with defaults.
+      this.indicatorConfigLoadPromise = null;
+      return DEFAULT_CONFLICT_INDICATOR_CONFIG;
+    });
+
+    return this.indicatorConfigLoadPromise;
+  }
+
   /**
    * Analyze text for conflict/peace indicators
    */
-  analyzeConflict(text: string): ConflictAnalysis {
+  async analyzeConflict(text: string): Promise<ConflictAnalysis> {
+    const indicatorConfig = await this.getIndicatorConfig();
     const lowerText = text.toLowerCase();
-    const tokens = tokenizer.tokenize(lowerText) || [];
+    tokenizer.tokenize(lowerText) || [];
 
     // Sentiment analysis
     const sentimentResult = sentiment.analyze(text);
@@ -97,16 +177,16 @@ export class ConflictNLPService {
       sentimentResult.score < -2 ? "negative" : "neutral";
 
     // Extract indicators
-    const violenceIndicators = VIOLENCE_INDICATORS.filter(ind => 
+    const violenceIndicators = indicatorConfig.violence.filter(ind => 
       lowerText.includes(ind)
     );
-    const tensionIndicators = TENSION_INDICATORS.filter(ind => 
+    const tensionIndicators = indicatorConfig.tension.filter(ind => 
       lowerText.includes(ind)
     );
-    const peaceIndicators = PEACE_INDICATORS.filter(ind => 
+    const peaceIndicators = indicatorConfig.peace.filter(ind => 
       lowerText.includes(ind)
     );
-    const humanitarianIndicators = HUMANITARIAN_INDICATORS.filter(ind => 
+    const humanitarianIndicators = indicatorConfig.humanitarian.filter(ind => 
       lowerText.includes(ind)
     );
 
@@ -167,13 +247,13 @@ export class ConflictNLPService {
   /**
    * Screen statement for conflict/peace content
    */
-  screenStatement(statement: string): {
+  async screenStatement(statement: string): Promise<{
     isConflictRelated: boolean;
     confidence: number;
     analysis: ConflictAnalysis;
     recommendation: "accept" | "review" | "reject";
-  } {
-    const analysis = this.analyzeConflict(statement);
+  }> {
+    const analysis = await this.analyzeConflict(statement);
     
     // Determine if conflict-related
     const totalIndicators = 
@@ -211,21 +291,21 @@ export class ConflictNLPService {
   /**
    * Batch analyze multiple texts
    */
-  batchAnalyze(texts: string[]): ConflictAnalysis[] {
-    return texts.map(text => this.analyzeConflict(text));
+  async batchAnalyze(texts: string[]): Promise<ConflictAnalysis[]> {
+    return Promise.all(texts.map((text) => this.analyzeConflict(text)));
   }
 
   /**
    * Extract conflict events from text
    */
-  extractConflictEvents(text: string): Array<{
+  async extractConflictEvents(text: string): Promise<Array<{
     type: string;
     description: string;
     location?: string;
     actors?: string[];
     severity: "low" | "medium" | "high" | "critical";
-  }> {
-    const analysis = this.analyzeConflict(text);
+  }>> {
+    const analysis = await this.analyzeConflict(text);
     const events: Array<{
       type: string;
       description: string;

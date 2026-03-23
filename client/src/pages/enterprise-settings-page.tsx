@@ -31,7 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useState, useEffect } from "react";
-import { Plus, Pencil, Trash2, FileText, MapPin, Zap, AlertTriangle } from "lucide-react";
+import { Plus, Pencil, Trash2, FileText, MapPin, Zap, AlertTriangle, ListChecks } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface AlertTemplate {
@@ -64,6 +64,13 @@ interface EscalationRule {
   active: boolean | null;
 }
 
+interface ConflictIndicatorConfig {
+  violence: string[];
+  tension: string[];
+  peace: string[];
+  humanitarian: string[];
+}
+
 const api = (path: string, options?: RequestInit) =>
   fetch(path, { ...options, credentials: "include" });
 
@@ -93,6 +100,24 @@ export default function EnterpriseSettingsPage() {
     queryKey: ["/api/watch-words"],
     queryFn: () => api("/api/watch-words").then((r) => (r.ok ? r.json() : [])),
   });
+
+  const { data: conflictIndicators, isLoading: loadingConflictIndicators } = useQuery<ConflictIndicatorConfig>({
+    queryKey: ["/api/conflict-indicators"],
+    queryFn: () => api("/api/conflict-indicators").then((r) => (r.ok ? r.json() : Promise.reject(new Error("Failed to fetch conflict indicators")))),
+  });
+
+  const [violenceDraft, setViolenceDraft] = useState("");
+  const [tensionDraft, setTensionDraft] = useState("");
+  const [peaceDraft, setPeaceDraft] = useState("");
+  const [humanitarianDraft, setHumanitarianDraft] = useState("");
+
+  useEffect(() => {
+    if (!conflictIndicators) return;
+    setViolenceDraft(conflictIndicators.violence.join("\n"));
+    setTensionDraft(conflictIndicators.tension.join("\n"));
+    setPeaceDraft(conflictIndicators.peace.join("\n"));
+    setHumanitarianDraft(conflictIndicators.humanitarian.join("\n"));
+  }, [conflictIndicators]);
 
   const alertMutation = useMutation({
     mutationFn: async (data: Partial<AlertTemplate> & { id?: number }) => {
@@ -228,6 +253,37 @@ export default function EnterpriseSettingsPage() {
     onError: () => toast({ title: "Failed to save watch words", variant: "destructive" }),
   });
 
+  const saveConflictIndicatorsMutation = useMutation({
+    mutationFn: async () => {
+      const parseLines = (s: string) =>
+        s
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean);
+
+      const payload: ConflictIndicatorConfig = {
+        violence: parseLines(violenceDraft),
+        tension: parseLines(tensionDraft),
+        peace: parseLines(peaceDraft),
+        humanitarian: parseLines(humanitarianDraft),
+      };
+
+      const res = await api("/api/conflict-indicators", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) throw new Error("Failed to save conflict indicators");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/conflict-indicators"] });
+      toast({ title: "Conflict indicators saved" });
+    },
+    onError: () => toast({ title: "Failed to save conflict indicators", variant: "destructive" }),
+  });
+
   return (
     <MainLayout title="Enterprise Settings">
       <div className="container mx-auto py-6 px-4">
@@ -237,7 +293,7 @@ export default function EnterpriseSettingsPage() {
         </p>
 
         <Tabs defaultValue="templates">
-          <TabsList className="grid w-full max-w-3xl grid-cols-4">
+          <TabsList className="grid w-full max-w-3xl grid-cols-2 sm:grid-cols-5">
             <TabsTrigger value="templates" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
               Alert Templates
@@ -253,6 +309,10 @@ export default function EnterpriseSettingsPage() {
             <TabsTrigger value="watchwords" className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" />
               Watch Words
+            </TabsTrigger>
+            <TabsTrigger value="conflictIndicators" className="flex items-center gap-2">
+              <ListChecks className="h-4 w-4" />
+              Conflict Indicators
             </TabsTrigger>
           </TabsList>
 
@@ -470,6 +530,75 @@ export default function EnterpriseSettingsPage() {
                       disabled={saveWatchWordsMutation.isPending}
                     >
                       {saveWatchWordsMutation.isPending ? "Saving..." : "Save watch words"}
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="conflictIndicators">
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ListChecks className="h-4 w-4" />
+                  Conflict indicator dictionary (admin configurable)
+                </CardTitle>
+                <CardDescription>
+                  One indicator per line. If you remove a line and save, that indicator is removed from AI conflict analysis and web-scraping filters.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loadingConflictIndicators ? (
+                  <p className="text-muted-foreground py-8 text-center">Loading...</p>
+                ) : (
+                  <div className="space-y-5">
+                    <div className="space-y-2">
+                      <Label htmlFor="conflict-ind-violence">Violence indicators</Label>
+                      <Textarea
+                        id="conflict-ind-violence"
+                        className="mt-2 min-h-[140px] font-mono text-sm"
+                        value={violenceDraft}
+                        onChange={(e) => setViolenceDraft(e.target.value)}
+                        placeholder={"kill\nattack\nshoot"}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="conflict-ind-tension">Tension indicators</Label>
+                      <Textarea
+                        id="conflict-ind-tension"
+                        className="mt-2 min-h-[140px] font-mono text-sm"
+                        value={tensionDraft}
+                        onChange={(e) => setTensionDraft(e.target.value)}
+                        placeholder={"tension\nprotest\nriot"}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="conflict-ind-peace">Peace indicators</Label>
+                      <Textarea
+                        id="conflict-ind-peace"
+                        className="mt-2 min-h-[140px] font-mono text-sm"
+                        value={peaceDraft}
+                        onChange={(e) => setPeaceDraft(e.target.value)}
+                        placeholder={"peace\nreconciliation\nceasefire"}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="conflict-ind-humanitarian">Humanitarian indicators</Label>
+                      <Textarea
+                        id="conflict-ind-humanitarian"
+                        className="mt-2 min-h-[140px] font-mono text-sm"
+                        value={humanitarianDraft}
+                        onChange={(e) => setHumanitarianDraft(e.target.value)}
+                        placeholder={"refugee\ndisplaced\nhumanitarian"}
+                      />
+                    </div>
+
+                    <Button
+                      onClick={() => saveConflictIndicatorsMutation.mutate()}
+                      disabled={saveConflictIndicatorsMutation.isPending}
+                    >
+                      {saveConflictIndicatorsMutation.isPending ? "Saving..." : "Save conflict indicators"}
                     </Button>
                   </div>
                 )}

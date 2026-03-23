@@ -39,6 +39,7 @@ import { setupAdvancedSearchRoutes } from "./routes/advanced-search";
 import { setupResponseTeamMembersRoutes } from "./routes/response-team-members";
 import { setupVoiceIncidentRoutes } from "./routes/voice-incident";
 import { setupCollaborationRoutes } from "./routes/collaboration";
+import { setupConflictIndicatorRoutes } from "./routes/conflict-indicators";
 import { setupResponderWorkflowRoutes } from "./routes/responder-workflow";
 import { db } from "./db";
 import * as notificationService from "./services/notification-service";
@@ -228,6 +229,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register AI analysis routes
   setupAIAnalysisRoutes(app, storage);
+
+  // Register configurable conflict indicator routes
+  setupConflictIndicatorRoutes(app);
 
   // Register collected data routes
   setupCollectedDataRoutes(app, storage);
@@ -1428,6 +1432,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Failed to fetch public incidents:", error);
       res.status(500).json({ error: "Failed to fetch incidents" });
     }
+  });
+
+  // LGA options (for dropdowns filtered by state)
+  app.get("/api/lga-options", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const state = typeof req.query.state === "string" ? req.query.state : undefined;
+    if (!state) return res.status(400).json({ error: "state is required" });
+
+    const incidents = await storage.getIncidentsFiltered({ state });
+    const lgas = Array.from(new Set(incidents.map((i) => i.lga).filter((v): v is string => typeof v === "string" && v.trim().length > 0))).sort();
+    res.json(lgas);
   });
 
   app.post("/api/public/incidents", async (req, res) => {

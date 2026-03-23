@@ -1415,6 +1415,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // LGA options (for dropdowns filtered by state)
+  app.get("/api/lga-options", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const state = typeof req.query.state === "string" ? req.query.state : undefined;
+    if (!state) return res.status(400).json({ error: "state is required" });
+
+    const incidents = await storage.getIncidentsFiltered({ state });
+    const lgas = Array.from(
+      new Set(incidents.map((i) => i.lga).filter((v): v is string => typeof v === "string" && v.trim().length > 0)),
+    ).sort();
+    res.json(lgas);
+  });
+
   // Alerts API
   app.get("/api/alerts", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
