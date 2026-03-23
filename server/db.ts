@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@shared/schema";
+import { pgConnectionOptions } from "./pg-config";
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
@@ -8,13 +9,7 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-// For managed DBs (DigitalOcean, etc.) with self-signed certs: set DATABASE_SSL_NO_VERIFY=true
-const poolConfig: { connectionString: string; ssl?: { rejectUnauthorized: boolean } } = {
-  connectionString: process.env.DATABASE_URL,
-};
-if (process.env.DATABASE_SSL_NO_VERIFY === "true") {
-  poolConfig.ssl = { rejectUnauthorized: false };
-}
+const poolConfig = pgConnectionOptions(process.env.DATABASE_URL);
 
 export const pool = new Pool(poolConfig);
 export const db = drizzle({ client: pool, schema });

@@ -3,6 +3,7 @@
  */
 import "dotenv/config";
 import pg from "pg";
+import { pgConnectionOptions } from "../server/pg-config";
 
 async function main() {
   const url = process.env.DATABASE_URL;
@@ -10,7 +11,7 @@ async function main() {
     console.error("DATABASE_URL is not set");
     process.exit(1);
   }
-  const client = new pg.Client({ connectionString: url });
+  const client = new pg.Client(pgConnectionOptions(url));
   await client.connect();
   await client.query(`
     ALTER TABLE incidents ADD COLUMN IF NOT EXISTS town text;

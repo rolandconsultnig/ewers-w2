@@ -2,6 +2,7 @@ import "dotenv/config";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import pg from "pg";
+import { pgConnectionOptions } from "../server/pg-config";
 
 const scryptAsync = promisify(scrypt);
 
@@ -16,7 +17,7 @@ async function seedAdmin() {
   const password = "admin123";
   const fullName = "System Administrator";
 
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const client = new pg.Client(pgConnectionOptions(process.env.DATABASE_URL!));
   await client.connect();
 
   try {
