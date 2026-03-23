@@ -176,7 +176,9 @@ export default function CallsPage() {
         }
       };
       pc.ontrack = (e) => {
-        const stream = e.streams[0];
+        // Some browsers fire `ontrack` with an empty `streams` array.
+        // Fall back to the incoming track so media always attaches.
+        const stream = e.streams?.[0] ?? (e.track ? new MediaStream([e.track]) : null);
         if (!stream) return;
         setRemoteStreams((prev) => new Map(prev).set(peerKey, stream));
         setRemotePeers((prev) => {
@@ -483,7 +485,7 @@ export default function CallsPage() {
                   {Array.from(remoteStreams.entries()).map(([peerKey, stream]) => (
                     <div key={peerKey} className="space-y-2">
                       <p className="text-sm font-medium">{remotePeers.find((p) => p.id === peerKey)?.label ?? peerKey}</p>
-                      <RemoteVideo stream={stream} />
+                      <RemoteMedia stream={stream} isVideo={activeCall.type === "video"} />
                     </div>
                   ))}
                 </div>
@@ -659,7 +661,11 @@ export default function CallsPage() {
 function RemoteVideo({ stream }: { stream: MediaStream }) {
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
-    if (ref.current) ref.current.srcObject = stream;
+    const el = ref.current;
+    if (!el) return;
+    el.srcObject = stream;
+    // Ensure audio starts on browsers that block autoplay until play() is called.
+    el.play().catch(() => {});
   }, [stream]);
   return (
     <video
@@ -669,4 +675,20 @@ function RemoteVideo({ stream }: { stream: MediaStream }) {
       className="w-full rounded-lg border bg-muted aspect-video object-cover"
     />
   );
+}
+
+function RemoteAudio({ stream }: { stream: MediaStream }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.srcObject = stream;
+    el.play().catch(() => {});
+  }, [stream]);
+  return <audio ref={ref} autoPlay className="w-full" />;
+}
+
+function RemoteMedia({ stream, isVideo }: { stream: MediaStream; isVideo: boolean }) {
+  if (isVideo) return <RemoteVideo stream={stream} />;
+  return <RemoteAudio stream={stream} />;
 }
