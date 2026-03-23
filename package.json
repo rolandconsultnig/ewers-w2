@@ -89,6 +89,7 @@
     "memorystore": "^1.6.7",
     "multer": "^2.0.2",
     "natural": "^8.1.0",
+    "nigerian-states-and-lgas": "^1.0.8",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.0",
     "openai": "^4.93.0",

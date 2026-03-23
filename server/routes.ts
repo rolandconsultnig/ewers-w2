@@ -79,6 +79,37 @@ import { PLATFORM_FEATURES, getFeaturesByCategory } from "@shared/permissions";
 import { getRolePermissionTemplates, saveRolePermissionTemplate } from "./role-permissions";
 import { desc, eq, count, sql } from "drizzle-orm";
 import path from "path";
+import { all as getAllNigerianStatesAndLgas } from "nigerian-states-and-lgas";
+
+const normalizeStateKey = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
+
+const nigeriaLgaLookup = (() => {
+  const lookup = new Map<string, string[]>();
+  const statesAndLgas = getAllNigerianStatesAndLgas() as Array<{ state: string; lgas: string[] }>;
+
+  for (const item of statesAndLgas) {
+    const lgas = Array.isArray(item.lgas) ? [...item.lgas].sort((a, b) => a.localeCompare(b)) : [];
+    lookup.set(normalizeStateKey(item.state), lgas);
+  }
+
+  // Common aliases and typo compatibility.
+  const fctLgas = lookup.get(normalizeStateKey("Federal Capital Territory")) ?? [];
+  lookup.set(normalizeStateKey("FCT"), fctLgas);
+  lookup.set(normalizeStateKey("Abuja"), fctLgas);
+
+  const katsinaLgas = lookup.get(normalizeStateKey("Kastina")) ?? [];
+  lookup.set(normalizeStateKey("Katsina"), katsinaLgas);
+
+  return lookup;
+})();
+
+const getLgaOptionsForState = (state: string): string[] => {
+  const normalizedState = normalizeStateKey(state);
+  return nigeriaLgaLookup.get(normalizedState) ?? [];
+};
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication routes
@@ -1468,12 +1499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/public/lga-options", async (req, res) => {
     const state = typeof req.query.state === "string" ? req.query.state : undefined;
     if (!state) return res.status(400).json({ error: "state is required" });
-
-    const incidents = await storage.getIncidentsFiltered({ state });
-    const lgas = Array.from(
-      new Set(incidents.map((i) => i.lga).filter((v): v is string => typeof v === "string" && v.trim().length > 0)),
-    ).sort();
-    res.json(lgas);
+    res.json(getLgaOptionsForState(state));
   });
 
   // LGA options (for dropdowns filtered by state)
@@ -1481,10 +1507,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const state = typeof req.query.state === "string" ? req.query.state : undefined;
     if (!state) return res.status(400).json({ error: "state is required" });
-
-    const incidents = await storage.getIncidentsFiltered({ state });
-    const lgas = Array.from(new Set(incidents.map((i) => i.lga).filter((v): v is string => typeof v === "string" && v.trim().length > 0))).sort();
-    res.json(lgas);
+    res.json(getLgaOptionsForState(state));
   });
 
   app.post("/api/public/incidents", async (req, res) => {
