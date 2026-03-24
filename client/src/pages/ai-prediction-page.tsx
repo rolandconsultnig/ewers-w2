@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import MainLayout from "@/components/layout/MainLayout";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -28,9 +29,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
 import type { Incident } from "@shared/schema";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import jsPDF from "jspdf";
 
 export default function AiPredictionPage() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState("conflict-forecast");
   const [selectedRegion, setSelectedRegion] = useState("north-east");
   const [predictionTimeline, setPredictionTimeline] = useState("30");
@@ -38,6 +42,7 @@ export default function AiPredictionPage() {
   const [startDate, setStartDate] = useState<Date | undefined>(new Date());
   const [showResults, setShowResults] = useState(false);
   const [forecastData, setForecastData] = useState<Record<string, unknown> | null>(null);
+  const [confidenceThreshold, setConfidenceThreshold] = useState([75]);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string>("");
   const [escalationResult, setEscalationResult] = useState<{
     incidentId: number;
@@ -79,28 +84,7 @@ export default function AiPredictionPage() {
         .slice(0, 50),
     [incidents]
   );
-  
-  const handleGenerateForecast = async () => {
-    setIsLoading(true);
-    try {
-      const res = await fetch("/api/ai/predict", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ region: selectedRegion, timeline: predictionTimeline }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed");
-      setShowResults(true);
-      setForecastData(data);
-      toast({ title: "Forecast Generated", description: "AI predictive model has generated a conflict forecast successfully." });
-    } catch (e) {
-      toast({ title: "Forecast Failed", description: e instanceof Error ? e.message : "Unknown error", variant: "destructive" });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
+
   const regionOptions = [
     { value: "north-east", label: "North East Nigeria" },
     { value: "north-west", label: "North West Nigeria" },
@@ -119,6 +103,212 @@ export default function AiPredictionPage() {
     { value: "South South", label: "South South" },
     { value: "South West", label: "South West" },
   ];
+
+  const handleGenerateForecast = async () => {
+    setIsLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/ai/predict", {
+        region: selectedRegion,
+        timeline: predictionTimeline,
+        startDate: startDate ? startDate.toISOString() : undefined,
+      });
+      const data = (await res.json()) as Record<string, unknown>;
+      setShowResults(true);
+      setForecastData(data);
+      toast({
+        title: "Forecast generated",
+        description: "Conflict event forecast is ready. Review predicted events and contributing factors below.",
+      });
+    } catch (e) {
+      toast({
+        title: "Forecast failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const forecastPayload = forecastData?.forecast as Record<string, unknown> | undefined;
+  const forecastSummary = (forecastPayload?.summary as Record<string, unknown>) || {};
+  const rawPredictedEvents = useMemo(() => {
+    const list = forecastPayload?.predictedEvents;
+    return Array.isArray(list) ? (list as Record<string, unknown>[]) : [];
+  }, [forecastPayload]);
+  const predictedEvents = useMemo(() => {
+    const minP = confidenceThreshold[0] ?? 0;
+    return rawPredictedEvents.filter((e) => {
+      const p = typeof e.probability === "number" ? e.probability : 100;
+      return p >= minP;
+    });
+  }, [rawPredictedEvents, confidenceThreshold]);
+  const contributingFactors = useMemo(() => {
+    const list = forecastPayload?.contributingFactors;
+    return Array.isArray(list) ? (list as Record<string, unknown>[]) : [];
+  }, [forecastPayload]);
+
+  const regionLabel = regionOptions.find((r) => r.value === selectedRegion)?.label ?? selectedRegion;
+
+  const riskBadgeClass = (level: string) => {
+    const x = (level || "").toLowerCase();
+    if (x === "critical" || x === "high") return "bg-red-100 text-red-800";
+    if (x === "medium") return "bg-amber-100 text-amber-800";
+    return "bg-blue-100 text-blue-800";
+  };
+
+  const handleExportForecastPdf = () => {
+    if (!forecastData || !forecastPayload) {
+      toast({ title: "Nothing to export", description: "Generate a forecast first.", variant: "destructive" });
+      return;
+    }
+    try {
+      const doc = new jsPDF();
+      const dateStr = new Date().toISOString().slice(0, 10);
+      let y = 18;
+      doc.setFontSize(15);
+      doc.text("EWERS — Conflict Event Forecast", 14, y);
+      y += 8;
+      doc.setFontSize(10);
+      doc.text(`Region: ${regionLabel}`, 14, y);
+      y += 5;
+      doc.text(`Timeline: ${predictionTimeline} days · Generated: ${String(forecastData.generatedAt || dateStr)}`, 14, y);
+      y += 8;
+      const risk = String(forecastSummary.riskLevel ?? "—");
+      const conf = typeof forecastSummary.confidence === "number" ? `${forecastSummary.confidence}%` : "—";
+      doc.text(`Risk level: ${risk} · Model confidence: ${conf}`, 14, y);
+      y += 10;
+      if (forecastSummary.rationale) {
+        const lines = doc.splitTextToSize(String(forecastSummary.rationale), 180);
+        doc.text(lines, 14, y);
+        y += lines.length * 5 + 6;
+      }
+      doc.setFontSize(12);
+      doc.text("Predicted events", 14, y);
+      y += 8;
+      doc.setFontSize(10);
+      for (const ev of predictedEvents.length ? predictedEvents : rawPredictedEvents) {
+        const block = [
+          String(ev.type ?? "Event"),
+          `Severity: ${String(ev.severity ?? "—")} · Window: ${String(ev.windowDays ?? "—")} days · P: ${String(ev.probability ?? "—")}%`,
+          String(ev.locationHint ? `Location: ${ev.locationHint}` : ""),
+          String(ev.rationale ?? ""),
+        ].filter(Boolean);
+        for (const line of block) {
+          const parts = doc.splitTextToSize(line, 180);
+          doc.text(parts, 14, y);
+          y += parts.length * 5;
+          if (y > 270) {
+            doc.addPage();
+            y = 16;
+          }
+        }
+        y += 4;
+      }
+      y += 4;
+      doc.setFontSize(12);
+      doc.text("Contributing factors", 14, y);
+      y += 8;
+      doc.setFontSize(10);
+      for (const f of contributingFactors) {
+        const line = `${String(f.factor ?? "Factor")} — ${String(f.weight ?? "—")}%${f.rationale ? ` · ${f.rationale}` : ""}`;
+        const parts = doc.splitTextToSize(line, 180);
+        doc.text(parts, 14, y);
+        y += parts.length * 5;
+        if (y > 270) {
+          doc.addPage();
+          y = 16;
+        }
+      }
+      doc.save(`conflict-forecast-${selectedRegion}-${dateStr}.pdf`);
+      toast({ title: "PDF exported", description: "Forecast report downloaded." });
+    } catch (e) {
+      toast({
+        title: "Export failed",
+        description: e instanceof Error ? e.message : "Could not create PDF",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleShareForecast = async () => {
+    if (!forecastData || !forecastPayload) {
+      toast({ title: "Nothing to share", description: "Generate a forecast first.", variant: "destructive" });
+      return;
+    }
+    const lines = [
+      `Conflict forecast — ${regionLabel}`,
+      `Timeline: ${predictionTimeline} days`,
+      `Risk: ${String(forecastSummary.riskLevel ?? "—")} · Confidence: ${typeof forecastSummary.confidence === "number" ? forecastSummary.confidence + "%" : "—"}`,
+      forecastSummary.rationale ? `Summary: ${forecastSummary.rationale}` : "",
+      ...rawPredictedEvents.map(
+        (e) =>
+          `• ${String(e.type ?? "Event")} (${String(e.severity ?? "?")}, ${String(e.probability ?? "?")}%) — ${String(e.locationHint ?? "")}`,
+      ),
+    ].filter(Boolean);
+    const text = lines.join("\n");
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `Forecast: ${regionLabel}`, text });
+      } else {
+        await navigator.clipboard.writeText(text);
+        toast({ title: "Copied to clipboard", description: "Forecast summary copied. Paste into email or chat." });
+        return;
+      }
+      toast({ title: "Shared", description: "Forecast summary shared." });
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast({ title: "Copied to clipboard", description: "Share was cancelled; summary copied instead." });
+      } catch {
+        toast({ title: "Share failed", variant: "destructive" });
+      }
+    }
+  };
+
+  const handleCreateForecastAlert = async () => {
+    if (!forecastData || !forecastPayload) {
+      toast({ title: "Nothing to alert", description: "Generate a forecast first.", variant: "destructive" });
+      return;
+    }
+    const risk = String(forecastSummary.riskLevel || "medium").toLowerCase();
+    const severity =
+      risk === "critical" ? "critical" : risk === "high" ? "high" : risk === "low" ? "low" : "medium";
+    const descParts = [
+      `Automated conflict event forecast (${predictionTimeline} days) for ${regionLabel}.`,
+      typeof forecastSummary.confidence === "number" ? `Model confidence: ${forecastSummary.confidence}%.` : "",
+      forecastSummary.rationale ? `Rationale: ${forecastSummary.rationale}` : "",
+      predictedEvents.length
+        ? `Highlighted risks: ${predictedEvents.map((e) => e.type).join("; ")}.`
+        : "",
+      `Generated at ${String(forecastData.generatedAt || new Date().toISOString())}.`,
+    ].filter(Boolean);
+    try {
+      await apiRequest("POST", "/api/alerts", {
+        title: `Predictive forecast: ${regionLabel} (${predictionTimeline}d)`,
+        description: descParts.join("\n\n"),
+        severity,
+        status: "active",
+        source: "automated",
+        category: "security",
+        region: regionLabel,
+        location: regionLabel,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+      toast({
+        title: "Alert created",
+        description: "Forecast summary was posted as an active alert.",
+      });
+      setLocation("/alerts");
+    } catch (e) {
+      toast({
+        title: "Could not create alert",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleRunEscalationPrediction = async () => {
     if (!selectedIncidentId) {
@@ -270,15 +460,17 @@ export default function AiPredictionPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <label className="text-sm font-medium">Confidence Threshold (%)</label>
-                      <span className="text-sm text-blue-600 font-medium">75%</span>
+                      <span className="text-sm text-blue-600 font-medium">{confidenceThreshold[0]}%</span>
                     </div>
                     <Slider
-                      defaultValue={[75]}
+                      value={confidenceThreshold}
+                      onValueChange={setConfidenceThreshold}
                       max={100}
+                      min={0}
                       step={5}
                       className="py-4"
                     />
-                    <p className="text-xs text-gray-500">Adjust the minimum confidence level for predicted events</p>
+                    <p className="text-xs text-gray-500">Hide predicted events below this probability</p>
                   </div>
                   
                   <div className="pt-4">
@@ -301,126 +493,123 @@ export default function AiPredictionPage() {
                     </Button>
                   </div>
                   
-                  {showResults && (
+                  {showResults && forecastData && (
                     <div className="mt-6 space-y-4 border rounded-lg p-4">
-                      <div className="flex justify-between items-start">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
                         <h3 className="text-xl font-semibold">
-                          {regionOptions.find(r => r.value === selectedRegion)?.label} - {predictionTimeline} Day Forecast
+                          {regionLabel} — {predictionTimeline} day forecast
                         </h3>
-                        <div className="flex gap-2">
-                          <Badge className="bg-amber-100 text-amber-800">Medium Risk</Badge>
-                          <Badge variant="outline">76% Confidence</Badge>
+                        <div className="flex flex-wrap gap-2">
+                          <Badge className={riskBadgeClass(String(forecastSummary.riskLevel ?? "medium"))}>
+                            {(String(forecastSummary.riskLevel ?? "medium")).replace(/^\w/, (c) => c.toUpperCase())} risk
+                          </Badge>
+                          <Badge variant="outline">
+                            {typeof forecastSummary.confidence === "number"
+                              ? `${Math.round(forecastSummary.confidence)}% confidence`
+                              : "Confidence n/a"}
+                          </Badge>
+                          {forecastPayload?.generatedBy && (
+                            <Badge variant="secondary" className="capitalize">
+                              {String(forecastPayload.generatedBy)}
+                            </Badge>
+                          )}
                         </div>
                       </div>
-                      
+
+                      {forecastSummary.rationale && (
+                        <p className="text-sm text-muted-foreground border-l-2 border-blue-300 pl-3">
+                          {String(forecastSummary.rationale)}
+                        </p>
+                      )}
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                          <h4 className="font-medium mb-2">Predicted Events</h4>
+                          <h4 className="font-medium mb-2">Predicted events</h4>
                           <div className="space-y-3">
-                            <div className="border rounded-md p-3">
-                              <div className="flex justify-between">
-                                <p className="font-medium">Community Tensions</p>
-                                <Badge className="bg-red-100 text-red-800">High</Badge>
+                            {predictedEvents.length === 0 && rawPredictedEvents.length > 0 && (
+                              <p className="text-sm text-amber-700">
+                                No events meet the {confidenceThreshold[0]}% threshold. Lower the threshold or review raw
+                                output in the exported report.
+                              </p>
+                            )}
+                            {predictedEvents.map((ev, idx) => (
+                              <div key={idx} className="border rounded-md p-3">
+                                <div className="flex justify-between gap-2 flex-wrap">
+                                  <p className="font-medium">{String(ev.type ?? "Event")}</p>
+                                  <Badge className={riskBadgeClass(String(ev.severity ?? "medium"))}>
+                                    {String(ev.severity ?? "—")}
+                                  </Badge>
+                                </div>
+                                {ev.rationale && (
+                                  <p className="text-sm text-gray-600 mt-1">{String(ev.rationale)}</p>
+                                )}
+                                <div className="flex flex-wrap items-center mt-2 text-xs text-gray-500 gap-x-3 gap-y-1">
+                                  {ev.locationHint && (
+                                    <span className="flex items-center">
+                                      <MapPin className="h-3 w-3 mr-1 shrink-0" />
+                                      {String(ev.locationHint)}
+                                    </span>
+                                  )}
+                                  {ev.windowDays != null && (
+                                    <span className="flex items-center">
+                                      <CalendarDays className="h-3 w-3 mr-1 shrink-0" />
+                                      Within {String(ev.windowDays)} days
+                                    </span>
+                                  )}
+                                  {typeof ev.probability === "number" && (
+                                    <span className="font-medium text-gray-700">{ev.probability}% probability</span>
+                                  )}
+                                </div>
                               </div>
-                              <p className="text-sm text-gray-600 mt-1">Increased likelihood of community tensions over resource competition in Borno region.</p>
-                              <div className="flex items-center mt-2 text-xs text-gray-500">
-                                <MapPin className="h-3 w-3 mr-1" />
-                                <span>Borno State</span>
-                                <CalendarDays className="h-3 w-3 ml-3 mr-1" />
-                                <span>Within 14 days</span>
-                              </div>
-                            </div>
-                            
-                            <div className="border rounded-md p-3">
-                              <div className="flex justify-between">
-                                <p className="font-medium">Infrastructure Attacks</p>
-                                <Badge className="bg-amber-100 text-amber-800">Medium</Badge>
-                              </div>
-                              <p className="text-sm text-gray-600 mt-1">Potential for coordinated attacks on critical infrastructure in rural areas.</p>
-                              <div className="flex items-center mt-2 text-xs text-gray-500">
-                                <MapPin className="h-3 w-3 mr-1" />
-                                <span>Yobe State</span>
-                                <CalendarDays className="h-3 w-3 ml-3 mr-1" />
-                                <span>Within 21 days</span>
-                              </div>
-                            </div>
-                            
-                            <div className="border rounded-md p-3">
-                              <div className="flex justify-between">
-                                <p className="font-medium">Armed Group Movement</p>
-                                <Badge className="bg-blue-100 text-blue-800">Low</Badge>
-                              </div>
-                              <p className="text-sm text-gray-600 mt-1">Possible movement of non-state armed groups across state borders.</p>
-                              <div className="flex items-center mt-2 text-xs text-gray-500">
-                                <MapPin className="h-3 w-3 mr-1" />
-                                <span>Adamawa State</span>
-                                <CalendarDays className="h-3 w-3 ml-3 mr-1" />
-                                <span>Within 30 days</span>
-                              </div>
-                            </div>
+                            ))}
+                            {rawPredictedEvents.length === 0 && (
+                              <p className="text-sm text-gray-500">No predicted events returned for this run.</p>
+                            )}
                           </div>
                         </div>
-                        
+
                         <div>
-                          <h4 className="font-medium mb-2">Contributing Factors</h4>
+                          <h4 className="font-medium mb-2">Contributing factors</h4>
                           <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center">
-                                <div className="w-2 h-8 bg-red-500 rounded-sm mr-3"></div>
-                                <div>
-                                  <p className="font-medium">Resource Scarcity</p>
-                                  <p className="text-xs text-gray-500">Limited access to water and arable land</p>
+                            {contributingFactors.map((f, idx) => {
+                              const w = typeof f.weight === "number" ? f.weight : 0;
+                              const bar =
+                                w >= 75 ? "bg-red-500" : w >= 50 ? "bg-amber-500" : "bg-blue-500";
+                              return (
+                                <div key={idx} className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center min-w-0">
+                                    <div className={`w-2 h-8 ${bar} rounded-sm mr-3 shrink-0`} />
+                                    <div className="min-w-0">
+                                      <p className="font-medium truncate">{String(f.factor ?? "Factor")}</p>
+                                      {f.rationale && (
+                                        <p className="text-xs text-gray-500 line-clamp-2">{String(f.rationale)}</p>
+                                      )}
+                                      {f.category && !f.rationale && (
+                                        <p className="text-xs text-gray-500">{String(f.category)}</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <span className="font-medium shrink-0">{Math.round(w)}%</span>
                                 </div>
-                              </div>
-                              <span className="font-medium">85%</span>
-                            </div>
-                            
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center">
-                                <div className="w-2 h-8 bg-amber-500 rounded-sm mr-3"></div>
-                                <div>
-                                  <p className="font-medium">Political Tensions</p>
-                                  <p className="text-xs text-gray-500">Upcoming local elections</p>
-                                </div>
-                              </div>
-                              <span className="font-medium">72%</span>
-                            </div>
-                            
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center">
-                                <div className="w-2 h-8 bg-amber-500 rounded-sm mr-3"></div>
-                                <div>
-                                  <p className="font-medium">Civilian Displacement</p>
-                                  <p className="text-xs text-gray-500">Internal migration due to insecurity</p>
-                                </div>
-                              </div>
-                              <span className="font-medium">68%</span>
-                            </div>
-                            
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center">
-                                <div className="w-2 h-8 bg-blue-500 rounded-sm mr-3"></div>
-                                <div>
-                                  <p className="font-medium">Economic Factors</p>
-                                  <p className="text-xs text-gray-500">Livelihood challenges in communities</p>
-                                </div>
-                              </div>
-                              <span className="font-medium">56%</span>
-                            </div>
+                              );
+                            })}
+                            {contributingFactors.length === 0 && (
+                              <p className="text-sm text-gray-500">No contributing factors in this response.</p>
+                            )}
                           </div>
                         </div>
                       </div>
-                      
-                      <div className="flex justify-end gap-2 mt-4">
-                        <Button variant="outline" size="sm">
+
+                      <div className="flex flex-wrap justify-end gap-2 mt-4">
+                        <Button variant="outline" size="sm" type="button" onClick={handleExportForecastPdf}>
                           <FileDown className="h-4 w-4 mr-2" />
                           Export Report
                         </Button>
-                        <Button variant="outline" size="sm">
+                        <Button variant="outline" size="sm" type="button" onClick={handleShareForecast}>
                           <Share2 className="h-4 w-4 mr-2" />
                           Share
                         </Button>
-                        <Button size="sm">
+                        <Button size="sm" type="button" onClick={handleCreateForecastAlert}>
                           Create Alert
                         </Button>
                       </div>
