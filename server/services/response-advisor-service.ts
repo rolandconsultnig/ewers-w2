@@ -23,6 +23,18 @@ export interface ResponseAdvisorResult {
     immediateActions: number;
   };
   generatedAt: Date;
+  /** Present when the plan was scoped to one incident */
+  incidentContext?: {
+    id: number;
+    title: string;
+    location?: string | null;
+    region?: string | null;
+    severity: string;
+    category?: string | null;
+    status?: string | null;
+  };
+  /** Short narrative framing the suggested plan (template-based guidance) */
+  planNarrative?: string;
 }
 
 export class ResponseAdvisorService {
@@ -42,23 +54,71 @@ export class ResponseAdvisorService {
       logger.info('Generating AI response recommendations');
 
       const incidents = await storage.getIncidents();
-      let targetIncidents = incidents;
+      const idNum =
+        incidentId !== undefined && incidentId !== null && !Number.isNaN(Number(incidentId))
+          ? Number(incidentId)
+          : undefined;
 
-      if (incidentId) {
-        targetIncidents = incidents.filter(inc => inc.id === incidentId);
-      } else if (region) {
-        targetIncidents = incidents.filter(inc => inc.region === region);
+      if (idNum !== undefined) {
+        const incident = await storage.getIncident(idNum);
+        if (!incident) {
+          throw new Error(`Incident ${idNum} not found`);
+        }
+
+        const tailored = this.buildIncidentTailoredRecommendations(incident);
+        const fromGenerators = [
+          ...(await this.generateImmediateResponse([incident])),
+          ...(await this.generateShortTermResponse([incident])),
+          ...(await this.generateLongTermResponse([incident])),
+        ];
+        const recommendations = this.dedupeByTitle([...tailored, ...fromGenerators]).sort(
+          (a, b) => b.confidence - a.confidence,
+        );
+
+        const criticalActions = recommendations.filter((r) => r.priority === 'critical').length;
+        const immediateActions = recommendations.filter((r) => r.category === 'immediate').length;
+
+        return {
+          recommendations,
+          summary: {
+            totalRecommendations: recommendations.length,
+            criticalActions,
+            immediateActions,
+          },
+          generatedAt: new Date(),
+          incidentContext: {
+            id: incident.id,
+            title: incident.title,
+            location: incident.location,
+            region: incident.region,
+            severity: incident.severity,
+            category: incident.category,
+            status: incident.status,
+          },
+          planNarrative: this.buildPlanNarrative(incident, recommendations.length),
+        };
+      }
+
+      let targetIncidents = incidents;
+      if (region && String(region).trim()) {
+        targetIncidents = incidents.filter((inc) => this.matchesRegion(inc, String(region)));
+        if (targetIncidents.length === 0) {
+          targetIncidents = incidents;
+        }
       }
 
       const recommendations: ResponseRecommendation[] = [];
 
-      // Generate different types of recommendations
-      recommendations.push(...await this.generateImmediateResponse(targetIncidents));
-      recommendations.push(...await this.generateShortTermResponse(targetIncidents));
-      recommendations.push(...await this.generateLongTermResponse(targetIncidents));
+      recommendations.push(...(await this.generateImmediateResponse(targetIncidents)));
+      recommendations.push(...(await this.generateShortTermResponse(targetIncidents)));
+      recommendations.push(...(await this.generateLongTermResponse(targetIncidents)));
 
-      const criticalActions = recommendations.filter(r => r.priority === 'critical').length;
-      const immediateActions = recommendations.filter(r => r.category === 'immediate').length;
+      if (recommendations.length === 0) {
+        recommendations.push(this.fallbackPortfolioRecommendation());
+      }
+
+      const criticalActions = recommendations.filter((r) => r.priority === 'critical').length;
+      const immediateActions = recommendations.filter((r) => r.category === 'immediate').length;
 
       return {
         recommendations: recommendations.sort((a, b) => b.confidence - a.confidence),
@@ -68,12 +128,215 @@ export class ResponseAdvisorService {
           immediateActions,
         },
         generatedAt: new Date(),
+        planNarrative:
+          region && String(region).trim()
+            ? `Suggested response themes for ${String(region).trim()}, based on current incident portfolio and risk heuristics. This is decision-support only—not operational orders.`
+            : 'Suggested response themes based on the current incident portfolio. This is decision-support only—not operational orders.',
       };
-
     } catch (error) {
       logger.error('Response advisor failed:', error);
-      throw new Error('Failed to generate response recommendations');
+      throw error instanceof Error ? error : new Error('Failed to generate response recommendations');
     }
+  }
+
+  private matchesRegion(incident: { region?: string | null }, region: string): boolean {
+    const ir = (incident.region || '').trim().toLowerCase();
+    const rr = region.trim().toLowerCase();
+    if (!ir || !rr) return false;
+    return ir === rr || ir.includes(rr) || rr.includes(ir);
+  }
+
+  private dedupeByTitle(recs: ResponseRecommendation[]): ResponseRecommendation[] {
+    const seen = new Set<string>();
+    return recs.filter((r) => {
+      const k = r.title.trim().toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
+  private buildPlanNarrative(incident: { title?: string; severity?: string; region?: string | null }, count: number): string {
+    const t = incident.title || 'this incident';
+    const sev = (incident.severity || 'medium').toLowerCase();
+    const reg = incident.region ? ` in ${incident.region}` : '';
+    return (
+      `Suggested response plan for “${t}”${reg} (${sev} severity). ` +
+      `${count} action themes are listed below—prioritize verification, civilian protection, and coordinated dialogue. ` +
+      `This output is AI-assisted decision support and must be validated by responsible authorities before deployment.`
+    );
+  }
+
+  /** Always returns several items so single-incident analysis is never empty */
+  private buildIncidentTailoredRecommendations(incident: {
+    id: number;
+    title?: string;
+    description?: string;
+    location?: string | null;
+    region?: string | null;
+    severity?: string;
+    category?: string | null;
+    status?: string | null;
+  }): ResponseRecommendation[] {
+    const sev = (incident.severity || 'low').toLowerCase();
+    const cat = (incident.category || 'general').toLowerCase();
+    const desc = (incident.description || '').toLowerCase();
+    const loc = incident.location || incident.region || 'the affected area';
+    const title = incident.title || `Incident #${incident.id}`;
+    const id = incident.id;
+
+    const priorityImmediate: ResponseRecommendation['priority'] =
+      sev === 'critical' ? 'critical' : sev === 'high' ? 'high' : sev === 'medium' ? 'medium' : 'low';
+
+    const recs: ResponseRecommendation[] = [
+      {
+        id: `tailored_immediate_${id}`,
+        title: 'Immediate verification, safety, and coordination',
+        description: `Establish facts and protect civilians around “${title}” (${loc}). Open a dedicated coordination channel before scaling response.`,
+        priority: priorityImmediate,
+        category: 'immediate',
+        confidence: 92,
+        actions: [
+          'Verify the situation through trusted field contacts and official channels; avoid amplifying unconfirmed reports',
+          'Assess immediate protection needs for civilians and critical infrastructure',
+          'Designate an incident lead and communication rhythm (sitrep schedule)',
+          'Align with security and humanitarian actors on de-confliction and access',
+        ],
+        resources: ['Field liaison', 'Situation room / comms', 'Security coordination', 'Medical standby'],
+        timeline: '0–6 hours',
+        successProbability: 78,
+        riskLevel: sev === 'critical' || sev === 'high' ? 'high' : 'medium',
+      },
+      {
+        id: `tailored_community_${id}`,
+        title: 'Community engagement, de-escalation, and information integrity',
+        description: `Reduce escalation drivers linked to “${title}” through trusted messengers, calm channels, and targeted rumor management.`,
+        priority: sev === 'critical' || sev === 'high' ? 'high' : 'medium',
+        category: 'short_term',
+        confidence: 84,
+        actions: [
+          'Engage community leaders, women/youth networks, and faith actors where appropriate',
+          'Counter harmful speech with factual updates without revealing sensitive operational detail',
+          'Offer safe reporting pathways for affected populations',
+          'Map flashpoints for secondary incidents and pre-position mediation capacity',
+        ],
+        resources: ['Community liaisons', 'Media monitoring', 'Mediation partners', 'Hotline / feedback channels'],
+        timeline: '24 hours – 2 weeks',
+        successProbability: 68,
+        riskLevel: 'medium',
+      },
+    ];
+
+    if (
+      cat.includes('protest') ||
+      cat.includes('political') ||
+      desc.includes('protest') ||
+      desc.includes('demonstration')
+    ) {
+      recs.push({
+        id: `tailored_protest_${id}`,
+        title: 'Public order and rights-respecting crowd management',
+        description: `Tailored for protest or political tension context: prioritize dialogue, proportionate policing, and freedom of assembly safeguards.`,
+        priority: 'high',
+        category: 'short_term',
+        confidence: 80,
+        actions: [
+          'Facilitate dialogue between authorities and organizers where feasible',
+          'Train responders on de-escalation and human rights standards',
+          'Plan traffic, medical, and legal observation support',
+          'Prepare contingency for diversion of violence away from protest cores',
+        ],
+        resources: ['Trained crowd management units', 'Legal observers', 'Mediation team', 'Emergency medical'],
+        timeline: '1–7 days',
+        successProbability: 65,
+        riskLevel: 'medium',
+      });
+    } else if (
+      cat.includes('natural') ||
+      cat.includes('disaster') ||
+      desc.includes('flood') ||
+      desc.includes('disaster')
+    ) {
+      recs.push({
+        id: `tailored_hum_${id}`,
+        title: 'Humanitarian staging and early recovery',
+        description: `Disaster-focused actions: life-saving assistance, shelter, WASH, and coordination with state emergency management.`,
+        priority: 'high',
+        category: 'immediate',
+        confidence: 86,
+        actions: [
+          'Rapid needs assessment in accessible areas',
+          'Pre-position shelter, food, water, and health surge capacity',
+          'Coordinate with NEMA/state actors on logistics corridors',
+          'Plan for disease prevention and child protection in collective sites',
+        ],
+        resources: ['Humanitarian clusters', 'Logistics', 'Health partners', 'Cash/voucher partners'],
+        timeline: '0–72 hours',
+        successProbability: 72,
+        riskLevel: 'medium',
+      });
+    } else {
+      recs.push({
+        id: `tailored_conflict_${id}`,
+        title: 'Conflict-sensitive response and accountability',
+        description: `For violent or armed conflict dynamics: emphasize protection, accountability signals, and medium-term stabilization.`,
+        priority: sev === 'low' ? 'medium' : 'high',
+        category: 'short_term',
+        confidence: 79,
+        actions: [
+          'Document incidents responsibly for accountability and learning (within security constraints)',
+          'Prioritize protection of women, children, and displaced populations',
+          'Explore localized ceasefires or cooling-off periods with trusted intermediaries',
+          'Link to longer-term justice and reconciliation pathways where appropriate',
+        ],
+        resources: ['Protection specialists', 'Human rights monitors', 'Justice sector partners', 'DDR/reintegration advisors'],
+        timeline: '1–8 weeks',
+        successProbability: 62,
+        riskLevel: 'high',
+      });
+    }
+
+    recs.push({
+      id: `tailored_monitor_${id}`,
+      title: 'Monitoring, learning, and after-action review',
+      description: `Sustain awareness of spillover risk and capture lessons from the response to “${title}”.`,
+      priority: 'medium',
+      category: 'long_term',
+      confidence: 74,
+      actions: [
+        'Track indicators of recurrence and community trust',
+        'Schedule an after-action review with all participating agencies',
+        'Update SOPs and early-warning triggers based on this case',
+        'Feed insights into regional prevention programming',
+      ],
+      resources: ['M&E staff', 'Regional analysts', 'Prevention program leads'],
+      timeline: '2–12 weeks',
+      successProbability: 70,
+      riskLevel: 'low',
+    });
+
+    return recs;
+  }
+
+  private fallbackPortfolioRecommendation(): ResponseRecommendation {
+    return {
+      id: `fallback_monitor_${Date.now()}`,
+      title: 'Portfolio monitoring and readiness',
+      description:
+        'Limited pattern match against current heuristics. Maintain monitoring, refresh risk picture weekly, and ensure surge contacts are current.',
+      priority: 'medium',
+      category: 'short_term',
+      confidence: 55,
+      actions: [
+        'Review open incidents and unresolved hotspots',
+        'Test escalation contacts and notification trees',
+        'Run a tabletop exercise for likely scenarios in the next 30 days',
+      ],
+      resources: ['Operations desk', 'Regional leads', 'Communications'],
+      timeline: 'Ongoing',
+      successProbability: 60,
+      riskLevel: 'low',
+    };
   }
 
   private async generateImmediateResponse(incidents: any[]): Promise<ResponseRecommendation[]> {

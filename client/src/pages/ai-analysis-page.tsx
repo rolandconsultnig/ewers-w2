@@ -343,19 +343,30 @@ export default function AiAnalysisPage() {
     }
   };
 
-  // Response Advisor handler
-  const handleResponseAdvisor = async () => {
+  // Response Advisor: region-wide from Response Advisor tab; incident-scoped from Incident Analysis tab
+  const handleResponseAdvisor = async (mode: "region" | "incident" = "region") => {
+    if (mode === "incident" && selectedIncidentId == null) {
+      toast({
+        title: "Select an incident",
+        description: "Choose an incident from the list before generating a response plan.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoadingResponse(true);
     try {
-      const res = await apiRequest("POST", "/api/ai/response-recommendations", {
-        incidentId: selectedIncidentId ?? undefined,
-        region,
-      });
+      const body: Record<string, unknown> = { region };
+      if (mode === "incident") {
+        body.incidentId = selectedIncidentId;
+      }
+
+      const res = await apiRequest("POST", "/api/ai/response-recommendations", body);
       const data = await res.json();
       setResponseRecommendations(data);
       toast({
-        title: "Response Analysis Complete",
-        description: `${data.summary.totalRecommendations} recommendations generated.`,
+        title: "Response plan ready",
+        description: `${data.summary?.totalRecommendations ?? 0} suggested action themes generated.`,
       });
     } catch (error) {
       toast({
@@ -365,6 +376,119 @@ export default function AiAnalysisPage() {
       });
     } finally {
       setIsLoadingResponse(false);
+    }
+  };
+
+  const handleExportResponsePlanPdf = () => {
+    const recs = responseRecommendations?.recommendations;
+    if (!Array.isArray(recs) || recs.length === 0) {
+      toast({
+        title: "Nothing to export",
+        description: "Generate a response plan first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const doc = new jsPDF();
+      const dateStr = new Date().toISOString().slice(0, 10);
+      let y = 18;
+      const ic = responseRecommendations.incidentContext as
+        | { id: number; title: string; location?: string | null; region?: string | null; severity: string; status?: string | null }
+        | undefined;
+
+      doc.setFontSize(15);
+      doc.text("EWERS — Suggested Response Plan", 14, y);
+      y += 8;
+      doc.setFontSize(10);
+      doc.text(`Generated: ${dateStr}`, 14, y);
+      y += 6;
+      doc.setFontSize(8);
+      doc.setTextColor(80, 80, 80);
+      const disc = doc.splitTextToSize(
+        "AI-assisted decision support only. Validate with responsible authorities before operational use.",
+        180,
+      );
+      doc.text(disc, 14, y);
+      y += disc.length * 4 + 6;
+      doc.setTextColor(0, 0, 0);
+
+      if (responseRecommendations.planNarrative) {
+        doc.setFontSize(10);
+        const nar = doc.splitTextToSize(String(responseRecommendations.planNarrative), 180);
+        doc.text(nar, 14, y);
+        y += nar.length * 5 + 6;
+      }
+
+      if (ic) {
+        doc.setFontSize(11);
+        const head = doc.splitTextToSize(`Incident #${ic.id}: ${ic.title}`, 180);
+        doc.text(head, 14, y);
+        y += head.length * 5 + 2;
+        doc.setFontSize(9);
+        doc.text(
+          `Location/region: ${ic.location || "—"} / ${ic.region || "—"}   Severity: ${ic.severity}   Status: ${ic.status || "—"}`,
+          14,
+          y,
+        );
+        y += 8;
+      }
+
+      doc.setDrawColor(60, 60, 60);
+      doc.line(14, y, 196, y);
+      y += 10;
+
+      for (const rec of recs) {
+        if (y > 255) {
+          doc.addPage();
+          y = 16;
+        }
+        doc.setFontSize(11);
+        const titleLines = doc.splitTextToSize(String(rec.title), 180);
+        doc.text(titleLines, 14, y);
+        y += titleLines.length * 5 + 2;
+        doc.setFontSize(9);
+        doc.text(
+          `Priority: ${rec.priority}   Phase: ${rec.category}   Timeline: ${rec.timeline}   Confidence: ${rec.confidence}%`,
+          14,
+          y,
+        );
+        y += 5;
+        const descLines = doc.splitTextToSize(String(rec.description || ""), 180);
+        doc.text(descLines, 14, y);
+        y += descLines.length * 5 + 3;
+
+        doc.setFontSize(9);
+        doc.text("Suggested actions:", 14, y);
+        y += 5;
+        for (const a of rec.actions || []) {
+          const al = doc.splitTextToSize(`• ${a}`, 176);
+          doc.text(al, 18, y);
+          y += al.length * 5;
+          if (y > 270) {
+            doc.addPage();
+            y = 16;
+          }
+        }
+        y += 2;
+        const resLines = doc.splitTextToSize(`Resources: ${(rec.resources || []).join(", ")}`, 180);
+        doc.text(resLines, 14, y);
+        y += resLines.length * 5 + 8;
+      }
+
+      const fnameBase = ic
+        ? `response-plan-incident-${ic.id}`
+        : `response-plan-${String(region).replace(/\s+/g, "-").toLowerCase()}`;
+      doc.save(`${fnameBase}-${dateStr}.pdf`);
+
+      toast({ title: "PDF exported", description: "Response plan downloaded." });
+    } catch (e) {
+      toast({
+        title: "PDF export failed",
+        description: e instanceof Error ? e.message : "Could not export PDF",
+        variant: "destructive",
+      });
     }
   };
   
@@ -729,8 +853,8 @@ export default function AiAnalysisPage() {
                               {selected.description || "No description available."}
                             </div>
 
-                            <div className="flex gap-2">
-                              <Button onClick={handleResponseAdvisor} disabled={isLoadingResponse}>
+                            <div className="flex gap-2 flex-wrap">
+                              <Button onClick={() => handleResponseAdvisor("incident")} disabled={isLoadingResponse}>
                                 {isLoadingResponse ? (
                                   <>
                                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -743,27 +867,72 @@ export default function AiAnalysisPage() {
                                   </>
                                 )}
                               </Button>
+                              <Button
+                                variant="outline"
+                                onClick={handleExportResponsePlanPdf}
+                                disabled={!responseRecommendations?.recommendations?.length}
+                              >
+                                <Download className="h-4 w-4 mr-2" />
+                                Export PDF
+                              </Button>
                               <Button variant="outline" onClick={() => setSelectedIncidentId(null)}>
                                 Clear
                               </Button>
                             </div>
 
                             {responseRecommendations && (
-                              <div className="border rounded-md p-3 bg-blue-50">
-                                <div className="flex justify-between items-center mb-2">
-                                  <div className="text-sm font-semibold">Recommended Actions</div>
-                                  <Badge variant="outline">{responseRecommendations.summary.totalRecommendations}</Badge>
+                              <div className="border rounded-md p-3 bg-blue-50/80 space-y-3">
+                                <div className="flex justify-between items-center gap-2 flex-wrap">
+                                  <div className="text-sm font-semibold">Suggested response plan</div>
+                                  <Badge variant="outline">{responseRecommendations.summary?.totalRecommendations ?? 0} themes</Badge>
                                 </div>
-                                <div className="space-y-2">
-                                  {responseRecommendations.recommendations.slice(0, 4).map((rec: any) => (
-                                    <div key={rec.id} className="border rounded-md p-2 bg-white">
-                                      <div className="flex justify-between items-start gap-2">
+                                {responseRecommendations.planNarrative && (
+                                  <p className="text-xs text-gray-700 leading-relaxed border-l-2 border-blue-400 pl-2">
+                                    {responseRecommendations.planNarrative}
+                                  </p>
+                                )}
+                                <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                                  {(responseRecommendations.recommendations || []).map((rec: any) => (
+                                    <div key={rec.id} className="border rounded-md p-3 bg-white">
+                                      <div className="flex justify-between items-start gap-2 flex-wrap">
                                         <div className="text-sm font-medium">{rec.title}</div>
-                                        <Badge className={rec.priority === 'critical' ? 'bg-red-100 text-red-800' : rec.priority === 'high' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}>
-                                          {rec.priority}
-                                        </Badge>
+                                        <div className="flex gap-1 flex-wrap">
+                                          <Badge
+                                            variant="outline"
+                                            className={
+                                              rec.priority === "critical"
+                                                ? "bg-red-100 text-red-800"
+                                                : rec.priority === "high"
+                                                  ? "bg-orange-100 text-orange-800"
+                                                  : rec.priority === "medium"
+                                                    ? "bg-yellow-100 text-yellow-800"
+                                                    : "bg-green-100 text-green-800"
+                                            }
+                                          >
+                                            {rec.priority}
+                                          </Badge>
+                                          <Badge variant="outline" className="capitalize">
+                                            {rec.category?.replace("_", " ")}
+                                          </Badge>
+                                        </div>
                                       </div>
-                                      <div className="text-xs text-gray-600 mt-1">{rec.description}</div>
+                                      <p className="text-xs text-gray-600 mt-1">{rec.description}</p>
+                                      <p className="text-[11px] text-gray-500 mt-1">
+                                        Timeline: {rec.timeline} · Success estimate: {rec.successProbability}%
+                                      </p>
+                                      {Array.isArray(rec.actions) && rec.actions.length > 0 && (
+                                        <ul className="mt-2 text-xs text-gray-700 list-disc pl-4 space-y-0.5">
+                                          {rec.actions.map((a: string, idx: number) => (
+                                            <li key={idx}>{a}</li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                      {Array.isArray(rec.resources) && rec.resources.length > 0 && (
+                                        <p className="text-[11px] text-gray-500 mt-2">
+                                          <span className="font-medium text-gray-600">Resources:</span>{" "}
+                                          {rec.resources.join(", ")}
+                                        </p>
+                                      )}
                                     </div>
                                   ))}
                                 </div>
@@ -1005,67 +1174,98 @@ export default function AiAnalysisPage() {
                     </Select>
                   </div>
                   
-                  <Button onClick={handleResponseAdvisor} disabled={isLoadingResponse}>
-                    {isLoadingResponse ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Bot className="h-4 w-4 mr-2" />
-                        Generate Recommendations
-                      </>
-                    )}
-                  </Button>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button onClick={() => handleResponseAdvisor("region")} disabled={isLoadingResponse}>
+                      {isLoadingResponse ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Bot className="h-4 w-4 mr-2" />
+                          Generate Recommendations
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleExportResponsePlanPdf}
+                      disabled={!responseRecommendations?.recommendations?.length}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Export PDF
+                    </Button>
+                  </div>
                 </div>
 
                 {responseRecommendations && (
                   <div className="space-y-4 border rounded-lg p-4">
-                    <div className="flex justify-between items-center">
-                      <h3 className="text-lg font-semibold">AI Response Recommendations</h3>
+                    <div className="flex justify-between items-center gap-2 flex-wrap">
+                      <h3 className="text-lg font-semibold">AI response suggestions</h3>
                       <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                        {responseRecommendations.summary.totalRecommendations} recommendations
+                        {responseRecommendations.summary?.totalRecommendations ?? 0} themes
                       </Badge>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4">
+                    {responseRecommendations.planNarrative && (
+                      <p className="text-sm text-muted-foreground border-l-2 border-blue-300 pl-3">
+                        {responseRecommendations.planNarrative}
+                      </p>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div className="bg-red-50 p-3 rounded-md">
-                        <p className="text-xs text-gray-500">Critical Actions</p>
-                        <p className="text-2xl font-bold text-red-700">{responseRecommendations.summary.criticalActions}</p>
+                        <p className="text-xs text-gray-500">Critical priority</p>
+                        <p className="text-2xl font-bold text-red-700">{responseRecommendations.summary?.criticalActions ?? 0}</p>
                       </div>
                       <div className="bg-amber-50 p-3 rounded-md">
-                        <p className="text-xs text-gray-500">Immediate Actions</p>
-                        <p className="text-2xl font-bold text-amber-700">{responseRecommendations.summary.immediateActions}</p>
+                        <p className="text-xs text-gray-500">Immediate phase</p>
+                        <p className="text-2xl font-bold text-amber-700">{responseRecommendations.summary?.immediateActions ?? 0}</p>
                       </div>
                       <div className="bg-blue-50 p-3 rounded-md">
-                        <p className="text-xs text-gray-500">Total Recommendations</p>
-                        <p className="text-2xl font-bold text-blue-700">{responseRecommendations.summary.totalRecommendations}</p>
+                        <p className="text-xs text-gray-500">Total themes</p>
+                        <p className="text-2xl font-bold text-blue-700">{responseRecommendations.summary?.totalRecommendations ?? 0}</p>
                       </div>
                     </div>
 
-                    <div className="space-y-3">
-                      {responseRecommendations.recommendations.slice(0, 4).map((rec: any, index: number) => (
+                    <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1">
+                      {(responseRecommendations.recommendations || []).map((rec: any) => (
                         <div key={rec.id} className="border rounded-md p-3">
-                          <div className="flex justify-between items-start mb-2">
+                          <div className="flex justify-between items-start mb-2 gap-2 flex-wrap">
                             <h4 className="font-medium">{rec.title}</h4>
-                            <div className="flex gap-2">
-                              <Badge className={`${rec.priority === 'critical' ? 'bg-red-100 text-red-800' : rec.priority === 'high' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>
+                            <div className="flex gap-2 flex-wrap">
+                              <Badge
+                                className={
+                                  rec.priority === "critical"
+                                    ? "bg-red-100 text-red-800"
+                                    : rec.priority === "high"
+                                      ? "bg-orange-100 text-orange-800"
+                                      : rec.priority === "medium"
+                                        ? "bg-yellow-100 text-yellow-800"
+                                        : "bg-green-100 text-green-800"
+                                }
+                              >
                                 {rec.priority}
                               </Badge>
-                              <Badge variant="outline">{rec.category}</Badge>
+                              <Badge variant="outline" className="capitalize">
+                                {String(rec.category || "").replace("_", " ")}
+                              </Badge>
                             </div>
                           </div>
                           <p className="text-sm text-gray-600 mb-2">{rec.description}</p>
-                          <div className="flex gap-2 text-xs text-gray-500 mb-2">
+                          <div className="flex gap-2 text-xs text-gray-500 mb-2 flex-wrap">
                             <span>Timeline: {rec.timeline}</span>
                             <span>•</span>
-                            <span>Success Rate: {rec.successProbability}%</span>
+                            <span>Success estimate: {rec.successProbability}%</span>
                           </div>
-                          <div className="text-xs">
-                            <span className="font-medium">Actions: </span>
-                            <span className="text-gray-600">{rec.actions.slice(0, 2).join(', ')}</span>
-                          </div>
+                          {Array.isArray(rec.actions) && rec.actions.length > 0 && (
+                            <ul className="text-xs text-gray-700 list-disc pl-4 space-y-0.5">
+                              {rec.actions.map((a: string, idx: number) => (
+                                <li key={idx}>{a}</li>
+                              ))}
+                            </ul>
+                          )}
                         </div>
                       ))}
                     </div>

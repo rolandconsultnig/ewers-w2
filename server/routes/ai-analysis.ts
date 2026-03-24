@@ -281,13 +281,26 @@ export function setupAIAnalysisRoutes(app: Router, storage: IStorage) {
   // Response Advisor - Generate AI recommendations
   app.post("/api/ai/response-recommendations", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    
-    const { incidentId, region } = req.body;
+
+    const raw = req.body?.incidentId;
+    let incidentId: number | undefined;
+    if (raw !== undefined && raw !== null && raw !== "") {
+      const n = Number(raw);
+      if (Number.isNaN(n)) {
+        return res.status(400).json({ error: "Invalid incidentId" });
+      }
+      incidentId = n;
+    }
+    const region = typeof req.body?.region === "string" ? req.body.region : undefined;
 
     try {
       const recommendations = await responseAdvisorService.generateRecommendations(incidentId, region);
       res.json(recommendations);
     } catch (error) {
+      const msg = error instanceof Error ? error.message : "";
+      if (msg.includes("not found")) {
+        return res.status(404).json({ error: msg });
+      }
       console.error("Error generating recommendations:", error);
       res.status(500).json({ error: "Failed to generate response recommendations" });
     }
