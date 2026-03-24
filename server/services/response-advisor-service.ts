@@ -65,13 +65,8 @@ export class ResponseAdvisorService {
           throw new Error(`Incident ${idNum} not found`);
         }
 
-        const tailored = this.buildIncidentTailoredRecommendations(incident);
-        const fromGenerators = [
-          ...(await this.generateImmediateResponse([incident])),
-          ...(await this.generateShortTermResponse([incident])),
-          ...(await this.generateLongTermResponse([incident])),
-        ];
-        const recommendations = this.dedupeByTitle([...tailored, ...fromGenerators]).sort(
+        // Single-incident plans must not reuse generic portfolio cards (they read the same for every incident).
+        const recommendations = this.buildIncidentTailoredRecommendations(incident).sort(
           (a, b) => b.confidence - a.confidence,
         );
 
@@ -146,28 +141,187 @@ export class ResponseAdvisorService {
     return ir === rr || ir.includes(rr) || rr.includes(ir);
   }
 
-  private dedupeByTitle(recs: ResponseRecommendation[]): ResponseRecommendation[] {
-    const seen = new Set<string>();
-    return recs.filter((r) => {
-      const k = r.title.trim().toLowerCase();
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
-  }
-
-  private buildPlanNarrative(incident: { title?: string; severity?: string; region?: string | null }, count: number): string {
+  private buildPlanNarrative(
+    incident: {
+      id: number;
+      title?: string;
+      severity?: string;
+      region?: string | null;
+      category?: string | null;
+      status?: string | null;
+      description?: string;
+    },
+    count: number,
+  ): string {
     const t = incident.title || 'this incident';
     const sev = (incident.severity || 'medium').toLowerCase();
     const reg = incident.region ? ` in ${incident.region}` : '';
+    const cat = incident.category ? ` Category: ${incident.category}.` : '';
+    const st = incident.status ? ` Status: ${incident.status}.` : '';
+    const ex = this.situationExcerpt(incident.description, 140);
+    const context = ex ? ` Reported context (abridged): ${ex}` : '';
     return (
-      `Suggested response plan for “${t}”${reg} (${sev} severity). ` +
-      `${count} action themes are listed below—prioritize verification, civilian protection, and coordinated dialogue. ` +
-      `This output is AI-assisted decision support and must be validated by responsible authorities before deployment.`
+      `Suggested response plan for incident #${incident.id} — “${t}”${reg} (${sev} severity).${cat}${st}${context} ` +
+      `${count} action themes below are keyed to this record—prioritize verification, civilian protection, and coordinated dialogue. ` +
+      `AI-assisted decision support only; validate before deployment.`
     );
   }
 
-  /** Always returns several items so single-incident analysis is never empty */
+  private situationExcerpt(description: string | undefined, max = 160): string {
+    if (!description?.trim()) return '';
+    const one = description.replace(/\s+/g, ' ').trim();
+    return one.length <= max ? one : `${one.slice(0, Math.max(0, max - 1))}…`;
+  }
+
+  /** Context-specific action bullets from free text + category (unique per incident). */
+  private deriveContextualActions(
+    cat: string,
+    desc: string,
+    title: string,
+    loc: string,
+  ): string[] {
+    const actions: string[] = [];
+    const d = desc.toLowerCase();
+
+    const push = (s: string) => {
+      if (!actions.includes(s)) actions.push(s);
+    };
+
+    if (d.includes('kidnap') || d.includes('abduct') || cat.includes('kidnap')) {
+      push(`For “${title}” in ${loc}: prioritize victim-centred safety, secure channels with families, and structured law-enforcement coordination—avoid public details that could endanger captives.`);
+    }
+    if (d.includes('bandit') || d.includes('armed attack') || cat.includes('bandit') || cat.includes('violence')) {
+      push(`Given reported armed violence around ${loc}, coordinate patrol patterns, civilian evacuation routes, and intelligence fusion specific to this incident’s geography.`);
+    }
+    if (d.includes('farmer') || d.includes('herder') || d.includes('grazing') || cat.includes('farmer') || cat.includes('land')) {
+      push(`Address farmer–herder or land-use dynamics for this case: convene traditional and statutory actors, clarify grazing/farm boundaries, and schedule joint fact-finding in ${loc}.`);
+    }
+    if (d.includes('flood') || d.includes('storm') || d.includes('fire ') || cat.includes('natural') || cat.includes('disaster')) {
+      push(`Align life-saving priorities for this event in ${loc}: shelter, WASH, health surge, and damage assessment tied to the reported hazard in the incident description.`);
+    }
+    if (d.includes('protest') || d.includes('riot') || d.includes('demonstration') || cat.includes('protest') || cat.includes('political')) {
+      push(`Shape public-order measures for “${title}” around dialogue, proportionate policing, and safe assembly—map organizer contacts and medical/legal observation for this location.`);
+    }
+    if (d.includes('election') || d.includes('poll') || d.includes('vote')) {
+      push(`Electoral context: secure polling and collation areas near ${loc}, train staff on dispute handling, and monitor hate speech tied to this incident’s narrative.`);
+    }
+    if (d.includes('sgbv') || d.includes('rape') || d.includes('sexual violence') || cat.includes('sgbv')) {
+      push(`Activate GBV referral pathways for this case: safe reporting, clinical/psychosocial support, and protection from retaliation—coordinate with gender desks covering ${loc}.`);
+    }
+    if (d.includes('terror') || d.includes('bomb') || d.includes('explosion') || d.includes('insurgent')) {
+      push(`High-impact security event: national–state fusion cell for ${loc}, controlled messaging, and counter-IED/force protection measures scaled to the described threat.`);
+    }
+
+    return actions.slice(0, 4);
+  }
+
+  private categoryTheme(incident: {
+    id: number;
+    title?: string;
+    description?: string;
+    location?: string | null;
+    region?: string | null;
+    category?: string | null;
+    severity?: string;
+  }): ResponseRecommendation {
+    const id = incident.id;
+    const title = incident.title || `Incident #${id}`;
+    const loc = incident.location || incident.region || 'the affected area';
+    const reg = incident.region || 'the region';
+    const cat = (incident.category || 'general').toLowerCase();
+    const desc = (incident.description || '').toLowerCase();
+    const sev = (incident.severity || 'medium').toLowerCase();
+    const pri: ResponseRecommendation['priority'] =
+      sev === 'critical' ? 'critical' : sev === 'high' ? 'high' : sev === 'medium' ? 'medium' : 'low';
+
+    const contextual = this.deriveContextualActions(cat, desc, title, loc);
+    const excerpt = this.situationExcerpt(incident.description, 120);
+
+    if (cat.includes('protest') || cat.includes('political') || desc.includes('protest') || desc.includes('demonstration')) {
+      return {
+        id: `theme_protest_${id}`,
+        title: `Public order & dialogue — #${id} (${reg})`,
+        description: `Incident “${title}” suggests assembly or political tension in ${loc}.${excerpt ? ` Context: ${excerpt}` : ''} Prioritize rights-respecting crowd management and de-escalation tailored to this report.`,
+        priority: pri === 'low' ? 'medium' : 'high',
+        category: 'short_term',
+        confidence: 82,
+        actions: [
+          ...contextual,
+          `Map stakeholder voices specific to “${title}” (traditional, youth, women, faith) in ${loc}.`,
+          'Train responders on de-escalation, freedom of assembly, and media-safe updates.',
+          'Pre-position medical and traffic management for the documented gathering pattern.',
+        ].filter(Boolean).slice(0, 6),
+        resources: ['Trained crowd units', 'Legal observers', 'Mediation team', 'Emergency medical', 'LGA desk'],
+        timeline: '1–7 days',
+        successProbability: 66,
+        riskLevel: 'medium',
+      };
+    }
+
+    if (cat.includes('natural') || cat.includes('disaster') || desc.includes('flood') || desc.includes('disaster')) {
+      return {
+        id: `theme_disaster_${id}`,
+        title: `Humanitarian & recovery — #${id} (${loc})`,
+        description: `Disaster-type report: “${title}”.${excerpt ? ` Details: ${excerpt}` : ''} Scale shelter, WASH, and health in ${reg} according to this incident’s scope.`,
+        priority: 'high',
+        category: 'immediate',
+        confidence: 87,
+        actions: [
+          ...contextual,
+          `Rapid needs assessment anchored on the described impacts for “${title}”.`,
+          'Coordinate NEMA/state emergency desks and logistics corridors into ' + loc + '.',
+          'Plan disease prevention and child protection in any collective sites opened for this event.',
+        ].filter(Boolean).slice(0, 6),
+        resources: ['NEMA/state EM', 'Health surge', 'WASH cluster', 'Logistics', 'Cash/voucher'],
+        timeline: '0–72 hours',
+        successProbability: 73,
+        riskLevel: 'medium',
+      };
+    }
+
+    if (cat.includes('economic')) {
+      return {
+        id: `theme_economic_${id}`,
+        title: `Livelihoods & market stability — #${id}`,
+        description: `Economic tension linked to “${title}” in ${loc}.${excerpt ? ` ${excerpt}` : ''} Stabilize prices, access, and grievances before they spill into violence.`,
+        priority: 'medium',
+        category: 'short_term',
+        confidence: 76,
+        actions: [
+          ...contextual,
+          `Assess market blockages and livelihood shocks referenced in this incident (${loc}).`,
+          'Engage trade associations and regulators on short-term relief measures.',
+          'Monitor for protest triggers tied to this economic flashpoint.',
+        ].filter(Boolean).slice(0, 5),
+        resources: ['Commerce/ministry liaison', 'Trade unions', 'Social protection', 'Police intel'],
+        timeline: '1–6 weeks',
+        successProbability: 64,
+        riskLevel: 'medium',
+      };
+    }
+
+    // Default: violence / armed conflict / general security
+    return {
+      id: `theme_security_${id}`,
+      title: `Protection & stabilization — #${id} (${cat || 'security'})`,
+      description: `“${title}” (${loc}, ${reg}) — category ${incident.category || 'unspecified'}.${excerpt ? ` Reported: ${excerpt}` : ''} Align security, protection, and justice responses to this specific narrative.`,
+      priority: sev === 'low' ? 'medium' : 'high',
+      category: 'short_term',
+      confidence: 80,
+      actions: [
+        ...contextual,
+        'Civilian-centred patrolling and safe corridors informed by this incident’s geography.',
+        'Document for accountability where safe; coordinate with human rights monitors.',
+        'Explore cooling-off or localized mediation matched to community structures in ' + loc + '.',
+      ].filter(Boolean).slice(0, 6),
+      resources: ['Security forces', 'Protection', 'Human rights', 'Justice sector', 'Local mediators'],
+      timeline: '1–8 weeks',
+      successProbability: 63,
+      riskLevel: sev === 'critical' || sev === 'high' ? 'high' : 'medium',
+    };
+  }
+
+  /** Always returns several items; every title and body is tied to incident id + text so plans differ across cases. */
   private buildIncidentTailoredRecommendations(incident: {
     id: number;
     title?: string;
@@ -182,136 +336,104 @@ export class ResponseAdvisorService {
     const cat = (incident.category || 'general').toLowerCase();
     const desc = (incident.description || '').toLowerCase();
     const loc = incident.location || incident.region || 'the affected area';
+    const reg = incident.region || 'the listed region';
     const title = incident.title || `Incident #${incident.id}`;
     const id = incident.id;
+    const status = (incident.status || 'unknown').toLowerCase();
+    const excerpt = this.situationExcerpt(incident.description, 130);
 
     const priorityImmediate: ResponseRecommendation['priority'] =
       sev === 'critical' ? 'critical' : sev === 'high' ? 'high' : sev === 'medium' ? 'medium' : 'low';
 
+    const contextualFirst = this.deriveContextualActions(cat, desc, title, loc);
+
     const recs: ResponseRecommendation[] = [
       {
         id: `tailored_immediate_${id}`,
-        title: 'Immediate verification, safety, and coordination',
-        description: `Establish facts and protect civilians around “${title}” (${loc}). Open a dedicated coordination channel before scaling response.`,
+        title: `First-line response — Incident #${id}: ${title.length > 48 ? `${title.slice(0, 47)}…` : title}`,
+        description: `Open the first window for “${title}” at ${loc} (${reg}). Severity ${sev}, status ${status}.${excerpt ? ` Summary from report: ${excerpt}` : ''} Verify facts before scaling assets.`,
         priority: priorityImmediate,
         category: 'immediate',
-        confidence: 92,
+        confidence: Math.min(94, 88 + (sev === 'critical' ? 4 : 0)),
         actions: [
-          'Verify the situation through trusted field contacts and official channels; avoid amplifying unconfirmed reports',
-          'Assess immediate protection needs for civilians and critical infrastructure',
-          'Designate an incident lead and communication rhythm (sitrep schedule)',
-          'Align with security and humanitarian actors on de-confliction and access',
+          ...(contextualFirst.length
+            ? contextualFirst.slice(0, 2)
+            : [
+                `Dispatch verification to ${loc}: cross-check “${title}” with field contacts and official channels.`,
+                `Stand up a named incident lead and sitrep rhythm for #${id} only (avoid generic portfolio queues).`,
+              ]),
+          sev === 'critical'
+            ? `Treat #${id} as maximum alert: EOC activation, medical surge, and protected movement corridors in ${reg}.`
+            : `Scale response to match ${sev} severity—reserve surge for confirmed escalation around ${loc}.`,
+          `Log decisions against incident #${id} for after-action review.`,
         ],
-        resources: ['Field liaison', 'Situation room / comms', 'Security coordination', 'Medical standby'],
-        timeline: '0–6 hours',
-        successProbability: 78,
+        resources: ['Field liaison', 'Situation room', 'Security coordination', 'Medical standby', `Case log #${id}`],
+        timeline: sev === 'critical' ? '0–2 hours' : '0–6 hours',
+        successProbability: sev === 'critical' ? 82 : 76,
         riskLevel: sev === 'critical' || sev === 'high' ? 'high' : 'medium',
       },
       {
         id: `tailored_community_${id}`,
-        title: 'Community engagement, de-escalation, and information integrity',
-        description: `Reduce escalation drivers linked to “${title}” through trusted messengers, calm channels, and targeted rumor management.`,
+        title: `Community & comms — #${id} (${reg})`,
+        description: `Reduce escalation around “${title}” in ${loc} using trusted networks.${excerpt ? ` Reference: ${excerpt}` : ''} Messaging should reflect this incident’s facts, not generic templates.`,
         priority: sev === 'critical' || sev === 'high' ? 'high' : 'medium',
         category: 'short_term',
-        confidence: 84,
+        confidence: 83,
         actions: [
-          'Engage community leaders, women/youth networks, and faith actors where appropriate',
-          'Counter harmful speech with factual updates without revealing sensitive operational detail',
-          'Offer safe reporting pathways for affected populations',
-          'Map flashpoints for secondary incidents and pre-position mediation capacity',
+          `Identify credible messengers for communities near ${loc} who can speak to issues raised in “${title}”.`,
+          'Counter harmful rumours with timed, factual updates (no operational detail that compromises safety).',
+          `Map secondary flashpoints that could ignite from the same grievance chain as #${id}.`,
+          'Offer safe reporting and feedback loops labelled for this incident so duplicates merge correctly.',
         ],
-        resources: ['Community liaisons', 'Media monitoring', 'Mediation partners', 'Hotline / feedback channels'],
+        resources: ['Community liaisons', 'Media monitoring', 'Mediation partners', 'Hotline'],
         timeline: '24 hours – 2 weeks',
-        successProbability: 68,
+        successProbability: 67,
         riskLevel: 'medium',
       },
     ];
 
-    if (
-      cat.includes('protest') ||
-      cat.includes('political') ||
-      desc.includes('protest') ||
-      desc.includes('demonstration')
-    ) {
+    if (sev === 'critical' || sev === 'high') {
       recs.push({
-        id: `tailored_protest_${id}`,
-        title: 'Public order and rights-respecting crowd management',
-        description: `Tailored for protest or political tension context: prioritize dialogue, proportionate policing, and freedom of assembly safeguards.`,
-        priority: 'high',
-        category: 'short_term',
-        confidence: 80,
-        actions: [
-          'Facilitate dialogue between authorities and organizers where feasible',
-          'Train responders on de-escalation and human rights standards',
-          'Plan traffic, medical, and legal observation support',
-          'Prepare contingency for diversion of violence away from protest cores',
-        ],
-        resources: ['Trained crowd management units', 'Legal observers', 'Mediation team', 'Emergency medical'],
-        timeline: '1–7 days',
-        successProbability: 65,
-        riskLevel: 'medium',
-      });
-    } else if (
-      cat.includes('natural') ||
-      cat.includes('disaster') ||
-      desc.includes('flood') ||
-      desc.includes('disaster')
-    ) {
-      recs.push({
-        id: `tailored_hum_${id}`,
-        title: 'Humanitarian staging and early recovery',
-        description: `Disaster-focused actions: life-saving assistance, shelter, WASH, and coordination with state emergency management.`,
-        priority: 'high',
+        id: `tailored_escalation_${id}`,
+        title: `Escalation control — #${id} (${sev})`,
+        description: `Higher severity on record #${id} (“${title}”, ${loc}).${excerpt ? ` ${excerpt}` : ''} Focus on containment, civilian protection, and ordered de-escalation specific to this case.`,
+        priority: sev === 'critical' ? 'critical' : 'high',
         category: 'immediate',
-        confidence: 86,
+        confidence: 90,
         actions: [
-          'Rapid needs assessment in accessible areas',
-          'Pre-position shelter, food, water, and health surge capacity',
-          'Coordinate with NEMA/state actors on logistics corridors',
-          'Plan for disease prevention and child protection in collective sites',
+          `Brief command on the distinct profile of #${id} versus other open incidents—avoid one-size response.`,
+          'Pre-position trauma care and family tracing if the description indicates mass harm or displacement.',
+          'Restrict use of indiscriminate force; document use-of-force against this incident’s timeline.',
+          `Align humanitarian access requests to routes and checkpoints relevant to ${loc}.`,
         ],
-        resources: ['Humanitarian clusters', 'Logistics', 'Health partners', 'Cash/voucher partners'],
-        timeline: '0–72 hours',
-        successProbability: 72,
-        riskLevel: 'medium',
-      });
-    } else {
-      recs.push({
-        id: `tailored_conflict_${id}`,
-        title: 'Conflict-sensitive response and accountability',
-        description: `For violent or armed conflict dynamics: emphasize protection, accountability signals, and medium-term stabilization.`,
-        priority: sev === 'low' ? 'medium' : 'high',
-        category: 'short_term',
-        confidence: 79,
-        actions: [
-          'Document incidents responsibly for accountability and learning (within security constraints)',
-          'Prioritize protection of women, children, and displaced populations',
-          'Explore localized ceasefires or cooling-off periods with trusted intermediaries',
-          'Link to longer-term justice and reconciliation pathways where appropriate',
-        ],
-        resources: ['Protection specialists', 'Human rights monitors', 'Justice sector partners', 'DDR/reintegration advisors'],
-        timeline: '1–8 weeks',
-        successProbability: 62,
+        resources: ['Command cell', 'Trauma care', 'Humanitarian access', 'Legal advisor'],
+        timeline: '0–12 hours',
+        successProbability: 74,
         riskLevel: 'high',
       });
     }
 
+    const theme = this.categoryTheme(incident);
+    if (theme) {
+      recs.push(theme);
+    }
+
     recs.push({
       id: `tailored_monitor_${id}`,
-      title: 'Monitoring, learning, and after-action review',
-      description: `Sustain awareness of spillover risk and capture lessons from the response to “${title}”.`,
+      title: `Monitoring & AAR — #${id}`,
+      description: `Track recurrence signals and lessons for “${title}” (${loc}).${status === 'resolved' ? ' Incident marked resolved—emphasize closure communications and residual risk.' : ' Incident still open—tie indicators to this ID in dashboards.'}`,
       priority: 'medium',
       category: 'long_term',
-      confidence: 74,
+      confidence: 72,
       actions: [
-        'Track indicators of recurrence and community trust',
-        'Schedule an after-action review with all participating agencies',
-        'Update SOPs and early-warning triggers based on this case',
-        'Feed insights into regional prevention programming',
+        `Add #${id}-specific indicators (not only regional aggregates) to early-warning dashboards.`,
+        'Schedule after-action review referencing this incident’s description and response timeline.',
+        'Update SOPs where this case exposed gaps (comms, access, or coordination).',
+        `Share anonymized lessons with prevention programming in ${reg}.`,
       ],
-      resources: ['M&E staff', 'Regional analysts', 'Prevention program leads'],
+      resources: ['M&E', 'Regional analysts', 'Prevention leads'],
       timeline: '2–12 weeks',
-      successProbability: 70,
+      successProbability: 69,
       riskLevel: 'low',
     });
 
