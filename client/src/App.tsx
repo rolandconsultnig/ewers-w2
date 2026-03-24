@@ -40,6 +40,7 @@ import PeaceIndicatorsPage from "@/pages/peace-indicators-page";
 import ReportIncidentPage from "@/pages/report-incident-page";
 import ReportByVoicePage from "@/pages/report-by-voice-page";
 import MapPage from "@/pages/map-page";
+import PublicMapPage from "@/pages/public-map-page";
 import ExecutiveDashboardPage from "@/pages/executive-dashboard-page";
 import AuditLogsPage from "@/pages/audit-logs-page";
 import EnterpriseSettingsPage from "@/pages/enterprise-settings-page";
@@ -75,6 +76,7 @@ function Router() {
       <Route path="/reset-password" component={ResetPasswordPage} />
       <Route path="/report-incident" component={ReportIncidentPage} />
       <Route path="/report-by-voice" component={ReportByVoicePage} />
+      <Route path="/public-map" component={PublicMapPage} />
       <Route path="/map" component={MapPage} />
       <ProtectedRoute path="/search" component={SearchPage} />
       <ProtectedRoute path="/chat" component={ChatPage} />

@@ -63,7 +63,7 @@ export default function HomePage() {
 
           <div className="flex items-center gap-3">
             <div className="hidden md:flex items-center gap-2">
-              <Link href="/map">
+              <Link href="/public-map">
                 <Button variant="ghost" className="gap-2">
                   <MapPin className="h-4 w-4" />
                   Map
@@ -136,7 +136,7 @@ export default function HomePage() {
                     Report by Voice
                   </Button>
                 </Link>
-                <Link href="/map">
+                <Link href="/public-map">
                   <Button
                     size="lg"
                     variant="outline"
@@ -326,7 +326,7 @@ export default function HomePage() {
             <div>
               <div className="font-semibold mb-3">Resources</div>
               <div className="grid gap-2 text-sm text-slate-400">
-                <Link href="/map" className="hover:text-white">Map</Link>
+                <Link href="/public-map" className="hover:text-white">Map</Link>
                 <Link href="/report-incident" className="hover:text-white">Report Incident</Link>
                 <Link href="/report-by-voice" className="hover:text-white">Report by Voice</Link>
               </div>
