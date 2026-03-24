@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { severityBadgeClass } from "@/lib/severity-colors";
 import { apiRequest } from "@/lib/queryClient";
 import { CheckCircle2, XCircle, AlertTriangle, MapPin, Calendar, User, ExternalLink } from "lucide-react";
 import type { Incident } from "@shared/schema";
@@ -171,14 +172,7 @@ export default function IncidentReviewPage() {
     }
   };
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case "critical": return "bg-red-100 text-red-800";
-      case "high": return "bg-orange-100 text-orange-800";
-      case "medium": return "bg-yellow-100 text-yellow-800";
-      default: return "bg-blue-100 text-blue-800";
-    }
-  };
+  const getSeverityColor = (severity: string) => severityBadgeClass(severity);
 
   return (
     <MainLayout title="Incident Review">
@@ -315,7 +309,7 @@ export default function IncidentReviewPage() {
                             <h3 className="font-semibold text-lg">{incident.title}</h3>
                             <p className="text-sm text-neutral-600 mt-1">{incident.description}</p>
                           </div>
-                          <Badge className={getSeverityColor(incident.severity)}>
+                          <Badge variant="outline" className={`capitalize ${getSeverityColor(incident.severity)}`}>
                             {incident.severity}
                           </Badge>
                         </div>

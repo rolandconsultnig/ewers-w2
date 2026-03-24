@@ -17,6 +17,7 @@ import {
   Shield,
   Zap,
 } from "lucide-react";
+import { SEVERITY_BADGE_CLASS } from "@/lib/severity-colors";
 import {
   AreaChart,
   Area,
@@ -87,12 +88,7 @@ export default function ExecutiveDashboardPage() {
     staleTime: 30000,
   });
 
-  const riskColors: Record<string, string> = {
-    low: "bg-green-100 text-green-800 border-green-200",
-    medium: "bg-yellow-100 text-yellow-800 border-yellow-200",
-    high: "bg-orange-100 text-orange-800 border-orange-200",
-    critical: "bg-red-100 text-red-800 border-red-200",
-  };
+  const riskColors: Record<string, string> = { ...SEVERITY_BADGE_CLASS };
 
   return (
     <MainLayout title="Executive Dashboard">

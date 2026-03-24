@@ -30,6 +30,7 @@ import {
   Download, 
   RefreshCw 
 } from "lucide-react";
+import { SEVERITY_HEX } from "@/lib/severity-colors";
 
 // Sample locations for the filter
 const locations = [
@@ -88,12 +89,11 @@ export default function AnalysisPage() {
     { name: 'Other', value: 5 },
   ];
 
-  // Sample severity distribution data: Low=Green, Medium=Grey, High=Blue, Critical=Red
   const severityData = [
-    { name: 'Critical', value: 10, color: '#ef4444' },
-    { name: 'High', value: 25, color: '#3b82f6' },
-    { name: 'Medium', value: 45, color: '#6b7280' },
-    { name: 'Low', value: 30, color: '#22c55e' },
+    { name: 'Critical', value: 10, color: SEVERITY_HEX.critical },
+    { name: 'High', value: 25, color: SEVERITY_HEX.high },
+    { name: 'Medium', value: 45, color: SEVERITY_HEX.medium },
+    { name: 'Low', value: 30, color: SEVERITY_HEX.low },
   ];
 
   // Sample regional comparison data

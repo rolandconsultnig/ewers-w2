@@ -4,6 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Alert, insertAlertSchema, Incident } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { normalizeSeverityLevel, severityBadgeClass } from "@/lib/severity-colors";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -290,16 +291,15 @@ export default function AlertsPage() {
   
   // Get the badge color based on severity
   const getSeverityBadge = (severity: string) => {
-    switch (severity.toLowerCase()) {
-      case "high":
-        return <Badge className="bg-red-100 text-red-800">High</Badge>;
-      case "medium":
-        return <Badge className="bg-amber-100 text-amber-800">Medium</Badge>;
-      case "low":
-        return <Badge className="bg-blue-100 text-blue-800">Low</Badge>;
-      default:
-        return <Badge>Unknown</Badge>;
+    if (!normalizeSeverityLevel(severity)) {
+      return <Badge variant="outline">Unknown</Badge>;
     }
+    const label = severity.charAt(0).toUpperCase() + severity.slice(1).toLowerCase();
+    return (
+      <Badge variant="outline" className={`capitalize border ${severityBadgeClass(severity)}`}>
+        {label}
+      </Badge>
+    );
   };
   
   // Get the status badge

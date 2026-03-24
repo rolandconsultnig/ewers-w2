@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Search, AlertTriangle, FileText, Database, User, Loader2 } from "lucide-react";
 import { format } from "date-fns";
+import { severityBadgeClass } from "@/lib/severity-colors";
 
 type SearchResult = {
   id: number;
@@ -337,7 +338,9 @@ export default function SearchPage() {
                         <p className="font-medium truncate">{r.title}</p>
                         <p className="text-sm text-muted-foreground truncate">{r.description}</p>
                       </div>
-                      <Badge>{r.severity}</Badge>
+                      <Badge variant="outline" className={`capitalize ${severityBadgeClass(String(r.severity ?? "low"))}`}>
+                        {r.severity}
+                      </Badge>
                       <span className="text-xs text-muted-foreground">
                         {r.generatedAt ? format(new Date(r.generatedAt), "MMM d, yyyy") : ""}
                       </span>

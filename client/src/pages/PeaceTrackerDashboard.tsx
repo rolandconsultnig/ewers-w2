@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useIncidentData } from "@/hooks/useIncidentData";
 import { crisisTypes } from "@/lib/crisis-constants";
+import { SEVERITY_HEX, severityBadgeClass } from "@/lib/severity-colors";
 import { useState, useEffect } from "react";
 import {
   PieChart,
@@ -100,14 +101,10 @@ export default function PeaceTrackerDashboard() {
       const severity = incident.severity || 'low';
       severityCounts[severity] = (severityCounts[severity] || 0) + 1;
     });
-    // Aligned palette: red = active violence, orange = rising, yellow = moderate, green = stable
     return Object.entries(severityCounts).map(([severity, count]) => ({
       name: severity.charAt(0).toUpperCase() + severity.slice(1),
       value: count,
-      color: severity === 'critical' ? '#dc2626' :
-             severity === 'high' ? '#ea580c' :
-             severity === 'medium' ? '#ca8a04' :
-             '#16a34a'
+      color: SEVERITY_HEX[severity as keyof typeof SEVERITY_HEX] ?? SEVERITY_HEX.low,
     }));
   };
 
@@ -409,7 +406,7 @@ export default function PeaceTrackerDashboard() {
                 .slice(0, 8)
                 .map((i) => (
                   <div key={i.id} className="flex items-start gap-2 text-sm py-1.5 border-b border-border/50 last:border-0">
-                    <Badge variant={i.severity === "critical" ? "destructive" : "secondary"} className="shrink-0 capitalize">
+                    <Badge variant="outline" className={`shrink-0 capitalize ${severityBadgeClass(i.severity ?? "low")}`}>
                       {i.severity}
                     </Badge>
                     <span className="font-medium line-clamp-1">{i.title}</span>
@@ -569,7 +566,14 @@ export default function PeaceTrackerDashboard() {
                         className="h-2 rounded-full"
                         style={{
                           width: `${(region.count / totalIncidents) * 100}%`,
-                          backgroundColor: index === 0 ? "#dc2626" : index === 1 ? "#ea580c" : index === 2 ? "#ca8a04" : "#16a34a",
+                          backgroundColor:
+                            index === 0
+                              ? SEVERITY_HEX.critical
+                              : index === 1
+                                ? SEVERITY_HEX.high
+                                : index === 2
+                                  ? SEVERITY_HEX.medium
+                                  : SEVERITY_HEX.low,
                         }}
                       />
                     </div>
@@ -672,15 +676,7 @@ export default function PeaceTrackerDashboard() {
                         <td className="py-3 px-4">{report.location}</td>
                         <td className="py-3 px-4">
                           <span
-                            className={`text-xs font-medium px-2 py-1 rounded-full capitalize ${
-                              report.severity === "critical"
-                                ? "bg-red-100 text-red-800"
-                                : report.severity === "high"
-                                ? "bg-orange-100 text-orange-800"
-                                : report.severity === "medium"
-                                ? "bg-yellow-100 text-yellow-800"
-                                : "bg-green-100 text-green-800"
-                            }`}
+                            className={`text-xs font-medium px-2 py-1 rounded-full capitalize border ${severityBadgeClass(report.severity ?? "low")}`}
                           >
                             {report.severity}
                           </span>

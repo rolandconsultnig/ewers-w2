@@ -1,3 +1,5 @@
+import { SEVERITY_HEX } from "./severity-colors";
+
 // Incident/Crisis types with colors and labels (aligned with EarlyPeaceTracker)
 export const crisisTypes: Record<string, { color: string; label: string }> = {
   violence: { color: "#E74C3C", label: "Violence" },
@@ -16,10 +18,5 @@ export const crisisTypes: Record<string, { color: string; label: string }> = {
 export const severityLevels = ["low", "medium", "high", "critical"];
 export const crisisStatuses = ["pending", "active", "resolved"];
 
-/** Severity colors: Low=Green, Medium=Grey, High=Blue, Critical=Red */
-export const severityColors: Record<string, string> = {
-  low: "#22c55e",      // green-500
-  medium: "#6b7280",   // gray-500
-  high: "#3b82f6",     // blue-500
-  critical: "#ef4444", // red-500
-};
+/** Severity fill colors for charts/maps (red → orange → yellow → green) */
+export const severityColors: Record<string, string> = { ...SEVERITY_HEX };

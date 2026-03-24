@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { severityBadgeClass } from "@/lib/severity-colors";
 import { Swords, Plus, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -126,7 +127,7 @@ export default function ElectionViolencePage() {
                         <Badge variant="outline" className="capitalize">{ev.type.replace("_", " ")}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={ev.severity === "critical" ? "destructive" : ev.severity === "high" ? "default" : "secondary"} className="capitalize">
+                        <Badge variant="outline" className={`capitalize ${severityBadgeClass(ev.severity)}`}>
                           {ev.severity}
                         </Badge>
                       </TableCell>

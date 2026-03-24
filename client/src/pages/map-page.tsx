@@ -8,6 +8,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import NigeriaMap from "@/components/maps/NigeriaMap";
 import type { Incident } from "@shared/schema";
 import { useQuery } from "@tanstack/react-query";
+import { SEVERITY_HEX } from "@/lib/severity-colors";
 
 // Create our own mock incidents with custom properties for the map display
 // Each mock incident needs to have the required fields to match the NigeriaMap component's expectations
@@ -273,19 +274,19 @@ export default function MapPage() {
         <h3 className="text-lg font-semibold mb-2">Map Legend</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="flex items-center space-x-2">
-            <div className="w-5 h-5 rounded-full bg-red-600"></div>
+            <div className="w-5 h-5 rounded-full shrink-0 border border-black/10" style={{ backgroundColor: SEVERITY_HEX.critical }} />
             <span>Critical — active tension / violence</span>
           </div>
           <div className="flex items-center space-x-2">
-            <div className="w-5 h-5 rounded-full bg-orange-500"></div>
-            <span>High — rising tension</span>
+            <div className="w-5 h-5 rounded-full shrink-0 border border-black/10" style={{ backgroundColor: SEVERITY_HEX.high }} />
+            <span>High — rising tension / instability</span>
           </div>
           <div className="flex items-center space-x-2">
-            <div className="w-5 h-5 rounded-full bg-yellow-500"></div>
-            <span>Medium — moderate risk</span>
+            <div className="w-5 h-5 rounded-full shrink-0 border border-black/10" style={{ backgroundColor: SEVERITY_HEX.medium }} />
+            <span>Medium — moderate risk / emerging issues</span>
           </div>
           <div className="flex items-center space-x-2">
-            <div className="w-5 h-5 rounded-full bg-green-600"></div>
+            <div className="w-5 h-5 rounded-full shrink-0 border border-black/10" style={{ backgroundColor: SEVERITY_HEX.low }} />
             <span>Low — relatively stable</span>
           </div>
           <div className="flex items-center space-x-2 sm:col-span-2">

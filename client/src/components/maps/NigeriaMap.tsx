@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, Info, AlertCircle, MapPin, Users, Pin } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
+import { severityBadgeClass } from '@/lib/severity-colors';
 
 // Fix Leaflet marker icon issues
 // Using CDNs that are more reliable with larger icon sizes for better visibility
@@ -38,7 +39,7 @@ const criticalSeverityIcon = new L.Icon({
 });
 
 const highSeverityIcon = new L.Icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
   iconSize: [35, 57],  // Larger size for higher visibility
   iconAnchor: [17, 57],
@@ -634,8 +635,7 @@ export default function NigeriaMap({
                     <div className="flex items-center text-xs p-1 bg-amber-50 rounded">
                       <AlertTriangle className="h-3 w-3 mr-1 text-amber-600" />
                       <span className="font-semibold">Severity:</span> 
-                      <Badge variant={incident.severity === 'high' ? 'destructive' : (incident.severity === 'medium' ? 'secondary' : 'default')} 
-                        className="ml-1">
+                      <Badge variant="outline" className={`ml-1 capitalize ${severityBadgeClass(incident.severity)}`}>
                         {incident.severity}
                       </Badge>
                     </div>

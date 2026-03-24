@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { severityHex } from "@/lib/severity-colors";
 
 // Sample incident data
 const incidents = [
@@ -108,9 +109,7 @@ const resources = [
 // Custom marker icons
 const getSeverityMarker = (severity: string) => {
   const size = severity === "Critical" ? 30 : severity === "High" ? 26 : severity === "Medium" ? 22 : 18;
-  const color = severity === "Critical" ? "#ef4444" : 
-                severity === "High" ? "#f97316" : 
-                severity === "Medium" ? "#eab308" : "#22c55e";
+  const color = severityHex(severity);
   
   return L.divIcon({
     className: "custom-marker",
@@ -123,12 +122,13 @@ const getSeverityMarker = (severity: string) => {
 
 // Risk level circle color
 const getRiskColor = (level: string) => {
+  const hex = severityHex(level);
   switch (level) {
-    case "Critical": return { color: "#ef4444", fillColor: "#ef4444", fillOpacity: 0.3 };
-    case "High": return { color: "#f97316", fillColor: "#f97316", fillOpacity: 0.25 };
-    case "Medium": return { color: "#eab308", fillColor: "#eab308", fillOpacity: 0.2 };
-    case "Low": return { color: "#22c55e", fillColor: "#22c55e", fillOpacity: 0.15 };
-    default: return { color: "#3b82f6", fillColor: "#3b82f6", fillOpacity: 0.1 };
+    case "Critical": return { color: hex, fillColor: hex, fillOpacity: 0.3 };
+    case "High": return { color: hex, fillColor: hex, fillOpacity: 0.25 };
+    case "Medium": return { color: hex, fillColor: hex, fillOpacity: 0.2 };
+    case "Low": return { color: hex, fillColor: hex, fillOpacity: 0.15 };
+    default: return { color: hex, fillColor: hex, fillOpacity: 0.12 };
   }
 };
 

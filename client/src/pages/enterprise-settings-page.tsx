@@ -33,6 +33,7 @@ import {
 import { useState, useEffect } from "react";
 import { Plus, Pencil, Trash2, FileText, MapPin, Zap, AlertTriangle, ListChecks } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { severityBadgeClass } from "@/lib/severity-colors";
 
 interface AlertTemplate {
   id: number;
@@ -355,7 +356,7 @@ export default function EnterpriseSettingsPage() {
                           <TableCell className="font-medium">{t.name}</TableCell>
                           <TableCell>{t.category}</TableCell>
                           <TableCell>
-                            <Badge variant={t.severity === "critical" ? "destructive" : "secondary"}>
+                            <Badge variant="outline" className={`capitalize ${severityBadgeClass(t.severity)}`}>
                               {t.severity}
                             </Badge>
                           </TableCell>
@@ -417,7 +418,7 @@ export default function EnterpriseSettingsPage() {
                           <TableCell>{z.region}</TableCell>
                           <TableCell>{z.state ?? "—"}</TableCell>
                           <TableCell>
-                            <Badge variant={z.riskLevel === "critical" ? "destructive" : "secondary"}>
+                            <Badge variant="outline" className={`capitalize ${severityBadgeClass(z.riskLevel)}`}>
                               {z.riskLevel}
                             </Badge>
                           </TableCell>

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { AlertTriangle, CheckCircle, Clock, RefreshCw, Filter, ExternalLink, Bell } from "lucide-react";
 import { useIncidentData } from "@/hooks/useIncidentData";
 import { crisisTypes } from "@/lib/crisis-constants";
+import { severityBadgeClass } from "@/lib/severity-colors";
 import { SocialMediaMonitor } from "@/components/SocialMediaMonitor";
 import { SmsMonitor } from "@/components/SmsMonitor";
 import { IncidentDetailModal } from "@/components/IncidentDetailModal";
@@ -164,7 +165,9 @@ export default function PeaceTrackerInternalDashboard() {
                         </span>
                       </div>
                       <p className="text-sm text-muted-foreground">{alert.description}</p>
-                      <Badge variant="outline" className="mt-2">{alert.severity}</Badge>
+                      <Badge variant="outline" className={`mt-2 capitalize ${severityBadgeClass(alert.severity)}`}>
+                        {alert.severity}
+                      </Badge>
                     </div>
                   ))}
                 </div>
@@ -202,7 +205,9 @@ export default function PeaceTrackerInternalDashboard() {
                             />
                             <h3 className="font-medium">{info.label}</h3>
                           </div>
-                          <Badge variant="outline">{report.severity}</Badge>
+                          <Badge variant="outline" className={`capitalize ${severityBadgeClass(report.severity)}`}>
+                            {report.severity}
+                          </Badge>
                         </div>
                         <p className="text-sm mb-2 line-clamp-2">{report.description}</p>
                         <div className="flex justify-between items-center text-sm text-muted-foreground">

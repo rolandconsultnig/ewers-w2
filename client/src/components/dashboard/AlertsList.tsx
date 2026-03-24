@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { severityBadgeClass, severityListRowClass } from "@/lib/severity-colors";
 
 interface AlertsListProps {
   onTakeAction: (alertId: number) => void;
@@ -50,31 +51,9 @@ export default function AlertsList({ onTakeAction }: AlertsListProps) {
     };
   }, []);
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity.toLowerCase()) {
-      case 'high':
-        return 'border-error/50 bg-error/10 text-error';
-      case 'medium':
-        return 'border-warning/50 bg-warning/10 text-warning';
-      case 'low':
-        return 'border-info/50 bg-info/10 text-info';
-      default:
-        return 'border-neutral-200 bg-neutral-100 text-neutral-600';
-    }
-  };
+  const getSeverityColor = (severity: string) => severityListRowClass(severity);
 
-  const getBadgeClass = (severity: string) => {
-    switch (severity.toLowerCase()) {
-      case 'high':
-        return 'bg-error/10 text-error';
-      case 'medium':
-        return 'bg-warning/10 text-warning';
-      case 'low':
-        return 'bg-info/10 text-info';
-      default:
-        return 'bg-neutral-100 text-neutral-600';
-    }
-  };
+  const getBadgeClass = (severity: string) => severityBadgeClass(severity);
 
   const formatDate = (dateString: Date) => {
     const date = new Date(dateString);
