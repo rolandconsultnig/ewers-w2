@@ -28,7 +28,11 @@
     "db:migrate:responder-backfill": "tsx migrations/10_backfill_responder_workflow_data.ts",
     "db:migrate:responder": "npm run db:migrate:responder-schema && npm run db:migrate:responder-backfill",
     "db:migrate:agency": "tsx migrations/14_add_agency_to_response_teams.ts",
-    "db:migrate:workflows": "tsx migrations/15_workflow_process_maker.ts"
+    "db:migrate:workflows": "tsx migrations/15_workflow_process_maker.ts",
+    "db:migrate:sql": "tsx scripts/apply-sql-migrations.ts",
+    "db:migrate:sql:managed": "cross-env DATABASE_SSL_NO_VERIFY=true tsx scripts/apply-sql-migrations.ts",
+    "db:prod:schema": "npm run db:migrate:sql && npm run db:seed",
+    "db:prod:schema:managed": "npm run db:migrate:sql:managed && npm run db:seed:managed"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

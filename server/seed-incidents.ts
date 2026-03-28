@@ -1,6 +1,11 @@
 import "dotenv/config";
+import { sql } from "drizzle-orm";
 import { db } from "./db";
 import { incidents } from '@shared/schema';
+
+/** Set to "1" or "true" to delete all incidents before seeding (dev reset only). */
+const seedClearIncidents =
+  process.env.SEED_CLEAR_INCIDENTS === "1" || process.env.SEED_CLEAR_INCIDENTS === "true";
 
 // Nigerian states and their coordinates
 const nigerianLocations = [
@@ -137,9 +142,24 @@ const specificIncidents = [
 ];
 
 async function seedIncidents() {
-  console.log('Clearing existing incidents...');
-  await db.delete(incidents);
-  console.log('Starting to seed incidents...');
+  const [{ count: existing }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(incidents);
+
+  if (existing > 0 && !seedClearIncidents) {
+    console.log(
+      `Skipping incident seed: ${existing} row(s) already in "incidents". ` +
+        `Production data is preserved. To wipe and reseed, set SEED_CLEAR_INCIDENTS=1 (danger).`,
+    );
+    return;
+  }
+
+  if (seedClearIncidents) {
+    console.log("SEED_CLEAR_INCIDENTS: clearing all incidents...");
+    await db.delete(incidents);
+  }
+
+  console.log("Starting to seed incidents...");
   
   const incidentsToCreate = [];
   let count = 0;
