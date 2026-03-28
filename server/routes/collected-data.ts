@@ -145,11 +145,22 @@ export function setupCollectedDataRoutes(app: Router, storage: IStorage) {
     try {
       const allData = await storage.getCollectedData();
       
+      const normalizeStatus = (s: unknown): "pending" | "processed" | "failed" => {
+        const v = typeof s === "string" ? s.toLowerCase() : "";
+        if (v === "processed") return "processed";
+        if (v === "failed" || v === "error") return "failed";
+        // legacy
+        if (v === "unprocessed") return "pending";
+        // default
+        return "pending";
+      };
+
+      const normalized = allData.map((d) => normalizeStatus(d.status));
       const stats = {
         total: allData.length,
-        pending: allData.filter(d => d.status === "pending").length,
-        processed: allData.filter(d => d.status === "processed").length,
-        failed: allData.filter(d => d.status === "failed").length,
+        pending: normalized.filter((s) => s === "pending").length,
+        processed: normalized.filter((s) => s === "processed").length,
+        failed: normalized.filter((s) => s === "failed").length,
         bySource: {} as Record<number, number>,
       };
       

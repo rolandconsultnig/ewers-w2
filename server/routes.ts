@@ -60,6 +60,7 @@ import { singleUpload } from "./services/file-upload";
 import { incidentAttachmentsUpload, getUploadSubdir } from "./services/incident-attachments-upload";
 import { importFile } from "./services/file-import-service";
 import { analyzeCrisisWithGPT, generateConflictForecast, getIncidentRecommendations } from "./services/ai-services";
+import { predictiveModelService } from "./services/predictive-model-service";
 import * as pushService from "./services/push-service";
 import {
   evaluateNotificationRulesForAlert,
@@ -1318,6 +1319,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("AI predict error:", error);
       res.status(500).json({ error: "AI prediction failed" });
+    }
+  });
+
+  app.post("/api/predictive/risk-ranking", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const horizonDays = req.body?.horizonDays;
+      const lookbackDays = req.body?.lookbackDays;
+      const minRows = req.body?.minRows;
+      const { result } = await predictiveModelService.runRiskRanking({ horizonDays, lookbackDays, minRows });
+      res.json(result);
+    } catch (error) {
+      console.error("Risk ranking error:", error);
+      res.status(500).json({ error: "Failed to generate risk ranking" });
+    }
+  });
+
+  app.get("/api/predictive/risk-ranking/latest", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const row = await predictiveModelService.getLatest("risk_ranking_v1");
+      if (!row) return res.status(404).json({ error: "No risk ranking generated yet" });
+      res.json(row);
+    } catch (error) {
+      console.error("Risk ranking latest error:", error);
+      res.status(500).json({ error: "Failed to load latest risk ranking" });
+    }
+  });
+
+  app.post("/api/predictive/monthly-forecast", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const monthsBack = req.body?.monthsBack;
+      const monthsForward = req.body?.monthsForward;
+      const minRows = req.body?.minRows;
+      const { result } = await predictiveModelService.runMonthlyForecast({ monthsBack, monthsForward, minRows });
+      res.json(result);
+    } catch (error) {
+      console.error("Monthly forecast error:", error);
+      res.status(500).json({ error: "Failed to generate monthly forecast" });
+    }
+  });
+
+  app.get("/api/predictive/monthly-forecast/latest", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const row = await predictiveModelService.getLatest("monthly_forecast_v1");
+      if (!row) return res.status(404).json({ error: "No monthly forecast generated yet" });
+      res.json(row);
+    } catch (error) {
+      console.error("Monthly forecast latest error:", error);
+      res.status(500).json({ error: "Failed to load latest monthly forecast" });
     }
   });
 
@@ -2732,7 +2785,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [totalResult] = await db.select({ count: count() }).from(collectedData);
       const total = totalResult?.count || 0;
       
-      // Get unprocessed count
+      // Get pending count (canonical) + legacy unprocessed count
+      const [pendingResult] = await db.select({ count: count() })
+        .from(collectedData)
+        .where(eq(collectedData.status, 'pending'));
+      const pending = pendingResult?.count || 0;
+
       const [unprocessedResult] = await db.select({ count: count() })
         .from(collectedData)
         .where(eq(collectedData.status, 'unprocessed'));
@@ -2744,7 +2802,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(collectedData.status, 'processed'));
       const processed = processedResult?.count || 0;
       
-      // Get error count
+      // Get failed count (canonical) + legacy error count
+      const [failedResult] = await db.select({ count: count() })
+        .from(collectedData)
+        .where(eq(collectedData.status, 'failed'));
+      const failed = failedResult?.count || 0;
+
       const [errorResult] = await db.select({ count: count() })
         .from(collectedData)
         .where(eq(collectedData.status, 'error'));
@@ -2755,6 +2818,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
         stats: {
           total,
+          pending: pending + unprocessed,
+          failed: failed + errors,
           unprocessed,
           processed,
           errors

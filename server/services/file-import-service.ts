@@ -74,7 +74,7 @@ export async function importFile(
         content: item,
         region: "Nigeria",
         location: (item.location as string) || (item.LOCATION as string) || (item.region as string) || undefined,
-        status: "unprocessed",
+        status: "pending",
       });
       imported++;
     } catch (err) {

@@ -72,6 +72,11 @@ export default function AiPredictionPage() {
     }>;
   } | null>(null);
 
+  const [isRiskRankingLoading, setIsRiskRankingLoading] = useState(false);
+  const [riskRankingResult, setRiskRankingResult] = useState<any>(null);
+  const [isMonthlyForecastLoading, setIsMonthlyForecastLoading] = useState(false);
+  const [monthlyForecastResult, setMonthlyForecastResult] = useState<any>(null);
+
   const { data: incidents = [] } = useQuery<Incident[]>({
     queryKey: ["/api/incidents"],
   });
@@ -365,7 +370,93 @@ export default function AiPredictionPage() {
       setIsPiLoading(false);
     }
   };
-  
+
+  const handleRunRiskRanking = async () => {
+    setIsRiskRankingLoading(true);
+    setRiskRankingResult(null);
+    try {
+      const res = await fetch("/api/predictive/risk-ranking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ horizonDays: 30, lookbackDays: 365, minRows: 50 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to generate risk ranking");
+      setRiskRankingResult(data);
+      toast({ title: "Risk ranking generated", description: "30-day risk ranking is ready." });
+    } catch (e) {
+      toast({
+        title: "Risk ranking failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRiskRankingLoading(false);
+    }
+  };
+
+  const handleLoadLatestRiskRanking = async () => {
+    setIsRiskRankingLoading(true);
+    try {
+      const res = await fetch("/api/predictive/risk-ranking/latest", { credentials: "include" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to load latest risk ranking");
+      setRiskRankingResult(data?.result || data);
+    } catch (e) {
+      toast({
+        title: "Load failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRiskRankingLoading(false);
+    }
+  };
+
+  const handleRunMonthlyForecast = async () => {
+    setIsMonthlyForecastLoading(true);
+    setMonthlyForecastResult(null);
+    try {
+      const res = await fetch("/api/predictive/monthly-forecast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ monthsBack: 36, monthsForward: 12, minRows: 50 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to generate monthly forecast");
+      setMonthlyForecastResult(data);
+      toast({ title: "Monthly forecast generated", description: "12-month forecast series is ready." });
+    } catch (e) {
+      toast({
+        title: "Monthly forecast failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsMonthlyForecastLoading(false);
+    }
+  };
+
+  const handleLoadLatestMonthlyForecast = async () => {
+    setIsMonthlyForecastLoading(true);
+    try {
+      const res = await fetch("/api/predictive/monthly-forecast/latest", { credentials: "include" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to load latest monthly forecast");
+      setMonthlyForecastResult(data?.result || data);
+    } catch (e) {
+      toast({
+        title: "Load failed",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setIsMonthlyForecastLoading(false);
+    }
+  };
+
   return (
     <MainLayout title="AI Predictive Models">
       <div className="mb-6">
@@ -374,19 +465,21 @@ export default function AiPredictionPage() {
           Use AI to forecast conflict events, escalation probabilities, and peace opportunities
         </p>
       </div>
-      
+
       <Tabs
         defaultValue="conflict-forecast"
         value={activeTab}
         onValueChange={setActiveTab}
         className="space-y-4"
       >
-        <TabsList className="grid grid-cols-3 w-[500px]">
+        <TabsList className="grid grid-cols-5 w-full max-w-3xl">
           <TabsTrigger value="conflict-forecast">Conflict Forecast</TabsTrigger>
           <TabsTrigger value="escalation-prediction">Escalation Prediction</TabsTrigger>
           <TabsTrigger value="peace-indicators">Peace Indicators</TabsTrigger>
+          <TabsTrigger value="risk-ranking">30-Day Risk Ranking</TabsTrigger>
+          <TabsTrigger value="monthly-forecast">Monthly Forecast</TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="conflict-forecast" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="md:col-span-2">
@@ -417,7 +510,7 @@ export default function AiPredictionPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    
+
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Prediction Timeline</label>
                       <Select value={predictionTimeline} onValueChange={setPredictionTimeline}>
@@ -433,7 +526,7 @@ export default function AiPredictionPage() {
                       </Select>
                     </div>
                   </div>
-                  
+
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Starting Date</label>
                     <Popover>
@@ -456,7 +549,7 @@ export default function AiPredictionPage() {
                       </PopoverContent>
                     </Popover>
                   </div>
-                  
+
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <label className="text-sm font-medium">Confidence Threshold (%)</label>
@@ -472,10 +565,10 @@ export default function AiPredictionPage() {
                     />
                     <p className="text-xs text-gray-500">Hide predicted events below this probability</p>
                   </div>
-                  
+
                   <div className="pt-4">
-                    <Button 
-                      className="w-full" 
+                    <Button
+                      className="w-full"
                       onClick={handleGenerateForecast}
                       disabled={isLoading}
                     >
@@ -492,7 +585,7 @@ export default function AiPredictionPage() {
                       )}
                     </Button>
                   </div>
-                  
+
                   {showResults && forecastData && (
                     <div className="mt-6 space-y-4 border rounded-lg p-4">
                       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
@@ -618,7 +711,7 @@ export default function AiPredictionPage() {
                 </div>
               </CardContent>
             </Card>
-            
+
             <div className="space-y-4">
               <Card>
                 <CardHeader>
@@ -636,7 +729,7 @@ export default function AiPredictionPage() {
                       </div>
                       <p className="text-xs text-gray-600">Based on validation against historical conflict data</p>
                     </div>
-                    
+
                     <div className="space-y-3">
                       <div className="flex justify-between text-sm">
                         <span>Location accuracy</span>
@@ -658,7 +751,7 @@ export default function AiPredictionPage() {
                   </div>
                 </CardContent>
               </Card>
-              
+
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center">
@@ -675,7 +768,7 @@ export default function AiPredictionPage() {
                       </div>
                       <Badge className="text-xs">4,287</Badge>
                     </div>
-                    
+
                     <div className="flex justify-between items-center">
                       <div className="flex items-center">
                         <Flag className="h-4 w-4 mr-2 text-blue-600" />
@@ -683,7 +776,7 @@ export default function AiPredictionPage() {
                       </div>
                       <Badge className="text-xs">1,542</Badge>
                     </div>
-                    
+
                     <div className="flex justify-between items-center">
                       <div className="flex items-center">
                         <MapPin className="h-4 w-4 mr-2 text-blue-600" />
@@ -691,7 +784,7 @@ export default function AiPredictionPage() {
                       </div>
                       <Badge className="text-xs">36 regions</Badge>
                     </div>
-                    
+
                     <div className="flex justify-between items-center">
                       <div className="flex items-center">
                         <Share2 className="h-4 w-4 mr-2 text-blue-600" />
@@ -710,7 +803,7 @@ export default function AiPredictionPage() {
             </div>
           </div>
         </TabsContent>
-        
+
         <TabsContent value="escalation-prediction">
           <Card>
             <CardHeader>
@@ -832,7 +925,7 @@ export default function AiPredictionPage() {
             </CardContent>
           </Card>
         </TabsContent>
-        
+
         <TabsContent value="peace-indicators">
           <Card>
             <CardHeader>
@@ -978,6 +1071,138 @@ export default function AiPredictionPage() {
                   </div>
                 )}
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="risk-ranking" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>30-Day Risk Ranking</CardTitle>
+              <CardDescription>
+                Ranks likely hotspots using historical incident volume, recent trends, and severity mix (State + LGA + conflict type).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2 mb-4">
+                <Button onClick={handleRunRiskRanking} disabled={isRiskRankingLoading}>
+                  {isRiskRankingLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Running...
+                    </>
+                  ) : (
+                    "Generate ranking"
+                  )}
+                </Button>
+                <Button variant="outline" onClick={handleLoadLatestRiskRanking} disabled={isRiskRankingLoading}>
+                  Load latest
+                </Button>
+              </div>
+
+              {riskRankingResult?.rows?.length ? (
+                <div className="overflow-auto border rounded-md">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted">
+                      <tr>
+                        <th className="text-left p-2">Rank</th>
+                        <th className="text-left p-2">State</th>
+                        <th className="text-left p-2">LGA</th>
+                        <th className="text-left p-2">Conflict type</th>
+                        <th className="text-right p-2">Score</th>
+                        <th className="text-right p-2">Last 30d</th>
+                        <th className="text-right p-2">Prev 30d</th>
+                        <th className="text-right p-2">Last 365d</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {riskRankingResult.rows.slice(0, 50).map((r: any, idx: number) => (
+                        <tr key={`${r.state}-${r.lga}-${r.conflictType}-${idx}`} className="border-t">
+                          <td className="p-2">{idx + 1}</td>
+                          <td className="p-2">{r.state}</td>
+                          <td className="p-2">{r.lga}</td>
+                          <td className="p-2">{r.conflictType}</td>
+                          <td className="p-2 text-right font-medium">{r.score}</td>
+                          <td className="p-2 text-right">{r.recentCount}</td>
+                          <td className="p-2 text-right">{r.previousCount}</td>
+                          <td className="p-2 text-right">{r.yearCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No ranking loaded yet. Generate or load the latest run.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="monthly-forecast" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Monthly Forecast (6–12 months)</CardTitle>
+              <CardDescription>
+                Monthly forecasts by State and conflict type derived from the last 36 months of incidents.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2 mb-4">
+                <Button onClick={handleRunMonthlyForecast} disabled={isMonthlyForecastLoading}>
+                  {isMonthlyForecastLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Running...
+                    </>
+                  ) : (
+                    "Generate forecast"
+                  )}
+                </Button>
+                <Button variant="outline" onClick={handleLoadLatestMonthlyForecast} disabled={isMonthlyForecastLoading}>
+                  Load latest
+                </Button>
+              </div>
+
+              {monthlyForecastResult?.series?.length ? (
+                <div className="space-y-3">
+                  {monthlyForecastResult.series.slice(0, 10).map((s: any, idx: number) => (
+                    <div key={`${s.state}-${s.conflictType}-${idx}`} className="border rounded-md p-3">
+                      <div className="flex flex-wrap justify-between gap-2">
+                        <div className="font-medium">
+                          {s.state} — {s.conflictType}
+                        </div>
+                        <Badge variant="outline">
+                          Last 6m: {Array.isArray(s.history) ? s.history.slice(-6).reduce((a: number, x: any) => a + (x.count || 0), 0) : 0}
+                        </Badge>
+                      </div>
+                      <div className="mt-2 overflow-auto">
+                        <table className="w-full text-xs">
+                          <thead className="text-muted-foreground">
+                            <tr>
+                              <th className="text-left p-1">Month</th>
+                              <th className="text-right p-1">Predicted</th>
+                              <th className="text-right p-1">Baseline</th>
+                              <th className="text-right p-1">Recent trend</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(s.forecast || []).slice(0, 12).map((p: any) => (
+                              <tr key={p.month} className="border-t">
+                                <td className="p-1">{p.month}</td>
+                                <td className="p-1 text-right font-medium">{p.predicted}</td>
+                                <td className="p-1 text-right">{p.baseline}</td>
+                                <td className="p-1 text-right">{p.recentTrend}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No forecast loaded yet. Generate or load the latest run.</p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

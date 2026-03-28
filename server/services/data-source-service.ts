@@ -90,7 +90,7 @@ export class DataSourceService {
             region: item.metadata?.region || 'Nigeria',
             location: item.metadata?.location || null,
             coordinates: item.metadata?.coordinates || null,
-            status: 'unprocessed'
+            status: 'pending'
           };
           
           await db.insert(collectedData).values([dataToInsert]);
@@ -254,7 +254,7 @@ export class DataSourceService {
         region: data.metadata?.region || 'Nigeria',
         location: data.metadata?.location || null,
         coordinates: data.metadata?.coordinates || null,
-        status: 'unprocessed'
+        status: 'pending'
       };
       
       // Insert data
@@ -273,7 +273,7 @@ export class DataSourceService {
   async processCollectedData() {
     try {
       // Get unprocessed data
-      const unprocessedData = await db.select().from(collectedData).where(eq(collectedData.status, 'unprocessed'));
+      const unprocessedData = await db.select().from(collectedData).where(eq(collectedData.status, 'pending'));
       
       if (!unprocessedData || unprocessedData.length === 0) {
         console.log('No unprocessed data found');
@@ -288,6 +288,9 @@ export class DataSourceService {
           await this.processDataItem(data);
         } catch (error) {
           console.error(`Error processing data item ${data.id}:`, error);
+          await db.update(collectedData)
+            .set({ status: 'failed', processedAt: new Date() })
+            .where(eq(collectedData.id, data.id));
         }
       }
     } catch (error) {

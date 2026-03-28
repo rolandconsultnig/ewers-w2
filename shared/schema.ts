@@ -78,7 +78,7 @@ export const collectedData = pgTable("collected_data", {
   region: text("region").notNull().default("Nigeria"),
   processed: boolean("processed").notNull().default(false),
   processedAt: timestamp("processed_at"),
-  status: text("status").notNull().default("unprocessed"), // unprocessed, processed, error
+  status: text("status").notNull().default("pending"), // unprocessed, processed, error
   sentiment: text("sentiment"),
   keywords: text("keywords").array(),
   mediaUrls: text("media_urls").array(),
@@ -189,7 +189,7 @@ export const incidents = pgTable("incidents", {
   processingStatus: text("processing_status").default("draft"), // draft, under_analysis, analysis_complete, supervisor_review, coordinator_review, dispatched
   proposedResponderType: text("proposed_responder_type"), // kinetic, non_kinetic, mixed
   finalResponderType: text("final_responder_type"), // kinetic, non_kinetic, mixed
-  assignedResponderTeamId: integer("assigned_responder_team_id").references(() => responseTeams.id),
+  assignedResponderTeamId: integer("assigned_responder_team_id"),
   supervisorId: integer("supervisor_id").references(() => users.id),
   coordinatorId: integer("coordinator_id").references(() => users.id),
   routedAt: timestamp("routed_at"),
@@ -222,683 +222,55 @@ export const insertIncidentSchema = createInsertSchema(incidents).pick({
 });
 
 // Incident discussion thread (analyst, supervisor, coordinator, responder comments)
-export const incidentDiscussions = pgTable("incident_discussions", {
+export const escalationPredictions = pgTable("escalation_predictions", {
   id: serial("id").notNull().primaryKey(),
-  incidentId: integer("incident_id").references(() => incidents.id).notNull(),
-  authorId: integer("author_id").references(() => users.id).notNull(),
-  role: text("role").notNull(), // analyst, supervisor, coordinator, responder
-  comment: text("comment").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-export const insertIncidentDiscussionSchema = createInsertSchema(incidentDiscussions).pick({
-  incidentId: true,
-  authorId: true,
-  role: true,
-  comment: true,
-});
-
-export type InsertIncidentDiscussion = z.infer<typeof insertIncidentDiscussionSchema>;
-export type IncidentDiscussion = typeof incidentDiscussions.$inferSelect;
-
-// Actionable incident dispatches (one incident -> many responder agencies)
-export const incidentDispatches = pgTable("incident_dispatches", {
-  id: serial("id").notNull().primaryKey(),
-  incidentId: integer("incident_id").notNull().references(() => incidents.id),
-  agency: text("agency").notNull(), // police, army, etc
-  status: text("status").notNull().default("sent"), // sent, acknowledged, resolved, closed
-  comment: text("comment"),
-  dispatchedBy: integer("dispatched_by").references(() => users.id),
-  dispatchedAt: timestamp("dispatched_at").notNull().defaultNow(),
-});
-
-export const insertIncidentDispatchSchema = createInsertSchema(incidentDispatches).pick({
-  incidentId: true,
-  agency: true,
-  status: true,
-  comment: true,
-  dispatchedBy: true,
-});
-
-export type InsertIncidentDispatch = z.infer<typeof insertIncidentDispatchSchema>;
-export type IncidentDispatch = typeof incidentDispatches.$inferSelect;
-
-// Case Management - Cases
-export const cases = pgTable("cases", {
-  id: serial("id").notNull().primaryKey(),
-  title: text("title").notNull(),
-  description: text("description"),
-  status: text("status").notNull().default("open"), // open, in_progress, resolved, closed
-  priority: text("priority").notNull().default("medium"), // low, medium, high, critical
-  incidentId: integer("incident_id"),
-  createdBy: integer("created_by").notNull(),
-  assignedTo: integer("assigned_to"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export const insertCaseSchema = createInsertSchema(cases).pick({
-  title: true,
-  description: true,
-  status: true,
-  priority: true,
-  incidentId: true,
-  createdBy: true,
-  assignedTo: true,
-});
-
-// Case Management - Notes
-export const caseNotes = pgTable("case_notes", {
-  id: serial("id").notNull().primaryKey(),
-  caseId: integer("case_id").notNull(),
-  authorId: integer("author_id").notNull(),
-  note: text("note").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-export const insertCaseNoteSchema = createInsertSchema(caseNotes).pick({
-  caseId: true,
-  authorId: true,
-  note: true,
-});
-
-// 4. Risk Assessment - Analyses
-export const riskAnalyses = pgTable("risk_analyses", {
-  id: serial("id").notNull().primaryKey(),
-  title: text("title").notNull(),
-  description: text("description").notNull(),
-  analysis: text("analysis").notNull(),
-  severity: text("severity").notNull(), // low, medium, high, critical
-  likelihood: text("likelihood").notNull(), // unlikely, possible, likely, very_likely
-  impact: text("impact").notNull(), // minimal, moderate, significant, severe
-  region: text("region").notNull().default("Nigeria"),
-  location: text("location").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  createdBy: integer("created_by").notNull(),
-  relatedIncidents: integer("related_incidents").array(),
-  relatedIndicators: integer("related_indicators").array(),
-  stakeholders: jsonb("stakeholders"),
-  recommendations: text("recommendations").notNull(),
-  timeframe: text("timeframe"), // immediate, short_term, medium_term, long_term
-});
-
-export const insertRiskAnalysisSchema = createInsertSchema(riskAnalyses).pick({
-  title: true,
-  description: true,
-  analysis: true,
-  severity: true,
-  likelihood: true,
-  impact: true,
-  region: true,
-  location: true,
-  createdBy: true,
-  relatedIncidents: true,
-  relatedIndicators: true,
-  stakeholders: true,
-  recommendations: true,
-});
-
-// 5. Alert Generation Module - Alerts
-export const alerts = pgTable("alerts", {
-  id: serial("id").notNull().primaryKey(),
-  title: text("title").notNull(),
-  description: text("description").notNull(),
-  severity: text("severity").notNull(), // low, medium, high, critical
-  status: text("status").notNull().default("active"), // active, resolved, false_positive
-  source: text("source").notNull(), // automated, manual, external
-  category: text("category"), // security, health, environment, infrastructure, etc.
-  generatedAt: timestamp("generated_at").notNull().defaultNow(),
-  region: text("region").notNull().default("Nigeria"),
-  location: text("location").notNull(),
-  incidentId: integer("incident_id"),
-  channels: text("channels").array(),
-  recipients: jsonb("recipients"),
-});
-
-export const insertAlertSchema = createInsertSchema(alerts).pick({
-  title: true,
-  description: true,
-  severity: true,
-  status: true,
-  source: true,
-  category: true,
-  region: true,
-  location: true,
-  incidentId: true,
-  channels: true,
-  recipients: true,
-});
-
-// Response Activities
-export const responseActivities = pgTable("response_activities", {
-  id: serial("id").notNull().primaryKey(),
-  title: text("title").notNull(),
-  description: text("description").notNull(),
-  status: text("status").notNull().default("pending"), // pending, in_progress, completed, cancelled
-  assignedTo: integer("assigned_to"),
-  assignedTeamId: integer("assigned_team_id").references(() => responseTeams.id),
-  responseType: text("response_type"), // kinetic, non_kinetic — matches responder portal tabs
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  startedAt: timestamp("started_at"),
-  completedAt: timestamp("completed_at"),
-  alertId: integer("alert_id"),
-  incidentId: integer("incident_id"),
-});
-
-export const insertResponseActivitySchema = createInsertSchema(responseActivities).pick({
-  title: true,
-  description: true,
-  status: true,
-  assignedTo: true,
-  assignedTeamId: true,
-  responseType: true,
-  startedAt: true,
-  completedAt: true,
-  alertId: true,
-  incidentId: true,
-});
-
-// Response Teams
-export const responseTeams = pgTable("response_teams", {
-  id: serial("id").notNull().primaryKey(),
-  name: text("name").notNull(),
-  type: text("type").notNull(), // medical, security, logistics, assessment, mediation
-  responseCategory: text("response_category"), // kinetic, non_kinetic — for responder portal filtering
-  agency: text("agency"), // police, army, dss, immigration, customs, nia, navy, air_force, other — for agency-specific dashboards
-  status: text("status").notNull().default("active"),
-  members: jsonb("members"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  region: text("region").notNull().default("Nigeria"),
-  location: text("location").notNull(),
-  capacity: integer("capacity"),
-  leader: integer("leader"),
-  expertiseAreas: text("expertise_areas").array(),
-});
-
-export const insertResponseTeamSchema = createInsertSchema(responseTeams).pick({
-  name: true,
-  type: true,
-  responseCategory: true,
-  agency: true,
-  status: true,
-  members: true,
-  region: true,
-  location: true,
-  capacity: true,
-  leader: true,
-  expertiseAreas: true,
-});
-
-// Response Plans
-export const responsePlans = pgTable("response_plans", {
-  id: serial("id").notNull().primaryKey(),
-  title: text("title").notNull(),
-  description: text("description").notNull(),
-  status: text("status").notNull().default("draft"), // draft, active, completed
-  category: text("category").notNull().default("preventive"), // emergency, preventive, recovery
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-  createdBy: integer("created_by").notNull(),
-  region: text("region").notNull().default("Nigeria"),
-  location: text("location").notNull(),
-  steps: jsonb("steps"),
-  resources: jsonb("resources"),
-  assignedTeams: integer("assigned_teams").array(),
-  alertId: integer("alert_id"),
-  incidentId: integer("incident_id"),
-  riskAnalysisId: integer("risk_analysis_id"),
-  interAgencyPortal: jsonb("inter_agency_portal"),
-});
-
-export const insertResponsePlanSchema = createInsertSchema(responsePlans).pick({
-  title: true,
-  description: true,
-  status: true,
-  category: true,
-  createdBy: true,
-  region: true,
-  location: true,
-  steps: true,
-  resources: true,
-  assignedTeams: true,
-  alertId: true,
-  incidentId: true,
-  riskAnalysisId: true,
-  interAgencyPortal: true,
-});
-
-// 7. Monitoring Module - Feedback
-export const feedbacks = pgTable("feedbacks", {
-  id: serial("id").notNull().primaryKey(),
-  type: text("type").notNull(), // response_feedback, system_feedback, alert_feedback
-  content: text("content").notNull(),
-  submittedAt: timestamp("submitted_at").notNull().defaultNow(),
-  submittedBy: integer("submitted_by").notNull(),
-  relatedIncidentId: integer("related_incident_id"),
-  responseId: integer("response_id"),
-  alertId: integer("alert_id"),
-  incidentId: integer("incident_id"),
-  status: text("status").notNull().default("pending"), // pending, reviewed, implemented
-  reviewedBy: integer("reviewed_by").notNull(),
-});
-
-export const insertFeedbackSchema = createInsertSchema(feedbacks).pick({
-  type: true,
-  content: true,
-  submittedBy: true,
-  relatedIncidentId: true,
-  responseId: true,
-  alertId: true,
-  incidentId: true,
-  status: true,
-  reviewedBy: true,
-});
-
-// 8. Reporting Module - Reports
-export const reports = pgTable("reports", {
-  id: serial("id").notNull().primaryKey(),
-  title: text("title").notNull(),
-  type: text("type").notNull(), // incident_report, situation_report, analysis_report, feedback_report
-  content: jsonb("content").notNull(),
-  createdBy: integer("created_by").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  startDate: date("start_date").notNull(),
-  endDate: date("end_date").notNull(),
-  region: text("region").notNull().default("Nigeria"),
-  // ... (rest of the code remains the same)
-  location: text("location"),
-  relatedIncidents: integer("related_incidents").array(),
-  relatedResponses: integer("related_responses").array(),
-  status: text("status").notNull().default("draft"), // draft, published, archived
-  publishedAt: timestamp("published_at"),
-  recipients: jsonb("recipients"),
-  attachments: jsonb("attachments"),
-  tags: text("tags").array(),
-});
-
-export const insertReportSchema = createInsertSchema(reports).pick({
-  title: true,
-  type: true,
-  content: true,
-  createdBy: true,
-  startDate: true,
-  endDate: true,
-  region: true,
-  location: true,
-  relatedIncidents: true,
-  relatedResponses: true,
-  status: true,
-  publishedAt: true,
-  recipients: true,
-  attachments: true,
-  tags: true,
-});
-
-// 9. Settings and Configuration
-export const settings = pgTable("settings", {
-  id: serial("id").notNull().primaryKey(),
-  category: text("category").notNull(), // alert_thresholds, system_config, notification_rules
-  key: text("key").notNull(),
-  value: jsonb("value").notNull(),
-  description: text("description"),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-  updatedBy: integer("updated_by").notNull(),
-});
-
-export const insertSettingSchema = createInsertSchema(settings).pick({
-  category: true,
-  key: true,
-  value: true,
-  description: true,
-  updatedBy: true,
-});
-
-export const workflowTemplates = pgTable("workflow_templates", {
-  id: serial("id").notNull().primaryKey(),
-  name: text("name").notNull(),
-  entityType: text("entity_type").notNull(),
-  activityType: text("activity_type"),
-  isActive: boolean("is_active").notNull().default(true),
-  createdBy: integer("created_by").references(() => users.id),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-export const workflowStages = pgTable("workflow_stages", {
-  id: serial("id").notNull().primaryKey(),
-  templateId: integer("template_id").notNull().references(() => workflowTemplates.id),
-  name: text("name").notNull(),
-  stageOrder: integer("stage_order").notNull(),
-  allowedRoles: text("allowed_roles").array(),
-});
-
-export const workflowTransitions = pgTable("workflow_transitions", {
-  id: serial("id").notNull().primaryKey(),
-  templateId: integer("template_id").notNull().references(() => workflowTemplates.id),
-  fromStageId: integer("from_stage_id").notNull().references(() => workflowStages.id),
-  toStageId: integer("to_stage_id").notNull().references(() => workflowStages.id),
-  allowedRoles: text("allowed_roles").array(),
-});
-
-export const workflowInstances = pgTable("workflow_instances", {
-  id: serial("id").notNull().primaryKey(),
-  templateId: integer("template_id").notNull().references(() => workflowTemplates.id),
-  entityType: text("entity_type").notNull(),
-  entityId: integer("entity_id").notNull(),
-  currentStageId: integer("current_stage_id").notNull().references(() => workflowStages.id),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export const workflowHistory = pgTable("workflow_history", {
-  id: serial("id").notNull().primaryKey(),
-  instanceId: integer("instance_id").notNull().references(() => workflowInstances.id),
-  fromStageId: integer("from_stage_id").references(() => workflowStages.id),
-  toStageId: integer("to_stage_id").references(() => workflowStages.id),
-  movedBy: integer("moved_by").references(() => users.id),
-  comment: text("comment"),
-  movedAt: timestamp("moved_at").notNull().defaultNow(),
-});
-
-export const insertWorkflowTemplateSchema = createInsertSchema(workflowTemplates).pick({
-  name: true,
-  entityType: true,
-  activityType: true,
-  isActive: true,
-  createdBy: true,
-});
-
-export const insertWorkflowStageSchema = createInsertSchema(workflowStages).pick({
-  templateId: true,
-  name: true,
-  stageOrder: true,
-  allowedRoles: true,
-});
-
-export const insertWorkflowTransitionSchema = createInsertSchema(workflowTransitions).pick({
-  templateId: true,
-  fromStageId: true,
-  toStageId: true,
-  allowedRoles: true,
-});
-
-export const insertWorkflowInstanceSchema = createInsertSchema(workflowInstances).pick({
-  templateId: true,
-  entityType: true,
-  entityId: true,
-  currentStageId: true,
-});
-
-export const insertWorkflowHistorySchema = createInsertSchema(workflowHistory).pick({
-  instanceId: true,
-  fromStageId: true,
-  toStageId: true,
-  movedBy: true,
-  comment: true,
-});
-
-// Notifications - User notifications (alerts, crisis updates)
-export const notifications = pgTable("notifications", {
-  id: serial("id").notNull().primaryKey(),
-  userId: integer("user_id").references(() => users.id).notNull(),
   incidentId: integer("incident_id").references(() => incidents.id),
-  alertId: integer("alert_id").references(() => alerts.id),
-  title: text("title").notNull(),
-  message: text("message").notNull(),
-  type: text("type").notNull().default("info"), // info, warning, critical, crisis
-  isRead: boolean("is_read").notNull().default(false),
+  region: text("region"),
+  currentSeverity: text("current_severity"),
+  escalationRisk: text("escalation_risk"), // low, medium, high
+  probability: integer("probability"), // 0-100
+  timeWindowDays: integer("time_window_days"),
+  keyDrivers: jsonb("key_drivers"),
+  recommendedActions: jsonb("recommended_actions"),
+  modelSource: text("model_source"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const session = pgTable("session", {
-  sid: text("sid").notNull().primaryKey(),
-  sess: jsonb("sess").notNull(),
-  expire: timestamp("expire", { withTimezone: true }).notNull(),
-});
-
-export const insertNotificationSchema = createInsertSchema(notifications).pick({
-  userId: true,
+export const insertEscalationPredictionSchema = createInsertSchema(escalationPredictions).pick({
   incidentId: true,
-  alertId: true,
-  title: true,
-  message: true,
-  type: true,
-});
-
-// 10. Security Module - Access Logs
-export const accessLogs = pgTable("access_logs", {
-  id: serial("id").notNull().primaryKey(),
-  userId: integer("user_id").notNull(),
-  action: text("action").notNull(), // login, logout, view, create, update, delete
-  resource: text("resource").notNull(), // user, incident, alert, etc.
-  resourceId: integer("resource_id"),
-  timestamp: timestamp("timestamp").notNull().defaultNow(),
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-  successful: boolean("successful").notNull().default(true),
-  details: jsonb("details"),
-});
-
-export const insertAccessLogSchema = createInsertSchema(accessLogs).pick({
-  userId: true,
-  action: true,
-  resource: true,
-  resourceId: true,
-  ipAddress: true,
-  userAgent: true,
-  successful: true,
-  details: true,
-});
-
-// Types
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
-
-export type InsertDataSource = z.infer<typeof insertDataSourceSchema>;
-export type DataSource = typeof dataSources.$inferSelect;
-
-export type InsertCollectedData = z.infer<typeof insertCollectedDataSchema>;
-export type CollectedData = typeof collectedData.$inferSelect;
-
-export type InsertProcessedData = z.infer<typeof insertProcessedDataSchema>;
-export type ProcessedData = typeof processedData.$inferSelect;
-
-export type InsertRiskIndicator = z.infer<typeof insertRiskIndicatorSchema>;
-export type RiskIndicator = typeof riskIndicators.$inferSelect;
-
-export type InsertIncident = z.infer<typeof insertIncidentSchema>;
-export type Incident = typeof incidents.$inferSelect;
-
-export type InsertCase = z.infer<typeof insertCaseSchema>;
-export type Case = typeof cases.$inferSelect;
-
-export type InsertCaseNote = z.infer<typeof insertCaseNoteSchema>;
-export type CaseNote = typeof caseNotes.$inferSelect;
-
-export type InsertRiskAnalysis = z.infer<typeof insertRiskAnalysisSchema>;
-export type RiskAnalysis = typeof riskAnalyses.$inferSelect;
-
-export type InsertAlert = z.infer<typeof insertAlertSchema>;
-export type Alert = typeof alerts.$inferSelect;
-
-export type InsertResponsePlan = z.infer<typeof insertResponsePlanSchema>;
-export type ResponsePlan = typeof responsePlans.$inferSelect;
-
-export type InsertResponseActivity = z.infer<typeof insertResponseActivitySchema>;
-export type ResponseActivity = typeof responseActivities.$inferSelect;
-
-export type InsertResponseTeam = z.infer<typeof insertResponseTeamSchema>;
-export type ResponseTeam = typeof responseTeams.$inferSelect;
-
-export type InsertFeedback = z.infer<typeof insertFeedbackSchema>;
-export type Feedback = typeof feedbacks.$inferSelect;
-
-export type InsertReport = z.infer<typeof insertReportSchema>;
-export type Report = typeof reports.$inferSelect;
-
-export type InsertSetting = z.infer<typeof insertSettingSchema>;
-export type Setting = typeof settings.$inferSelect;
-
-export type InsertWorkflowTemplate = z.infer<typeof insertWorkflowTemplateSchema>;
-export type WorkflowTemplate = typeof workflowTemplates.$inferSelect;
-export type InsertWorkflowStage = z.infer<typeof insertWorkflowStageSchema>;
-export type WorkflowStage = typeof workflowStages.$inferSelect;
-export type InsertWorkflowTransition = z.infer<typeof insertWorkflowTransitionSchema>;
-export type WorkflowTransition = typeof workflowTransitions.$inferSelect;
-export type InsertWorkflowInstance = z.infer<typeof insertWorkflowInstanceSchema>;
-export type WorkflowInstance = typeof workflowInstances.$inferSelect;
-export type InsertWorkflowHistory = z.infer<typeof insertWorkflowHistorySchema>;
-export type WorkflowHistory = typeof workflowHistory.$inferSelect;
-
-export type InsertNotification = z.infer<typeof insertNotificationSchema>;
-export type Notification = typeof notifications.$inferSelect;
-
-export type InsertAccessLog = z.infer<typeof insertAccessLogSchema>;
-export type AccessLog = typeof accessLogs.$inferSelect;
-
-// 11. API Integration Module - API Keys
-export const apiKeys = pgTable("api_keys", {
-  id: serial("id").notNull().primaryKey(),
-  userId: integer("user_id").references(() => users.id).notNull(),
-  name: text("name").notNull(),
-  key: text("key").notNull(),
-  permissions: jsonb("permissions").$type<string[]>().notNull(),
-  expiresAt: timestamp("expires_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  lastUsed: timestamp("last_used"),
-  status: text("status").notNull().default("active"),
-});
-
-export const insertApiKeySchema = createInsertSchema(apiKeys).pick({
-  userId: true,
-  name: true,
-  key: true,
-  permissions: true,
-  expiresAt: true,
-  status: true,
-});
-
-export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
-export type ApiKey = typeof apiKeys.$inferSelect;
-
-// 12. Webhook Module - Webhooks
-export const webhooks = pgTable("webhooks", {
-  id: serial("id").notNull().primaryKey(),
-  userId: integer("user_id").references(() => users.id).notNull(),
-  name: text("name").notNull(),
-  url: text("url").notNull(),
-  secret: text("secret").notNull(),
-  events: jsonb("events").$type<string[]>().notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  lastTriggered: timestamp("last_triggered"),
-  status: text("status").notNull().default("active"),
-});
-
-export const insertWebhookSchema = createInsertSchema(webhooks).pick({
-  userId: true,
-  name: true,
-  url: true,
-  secret: true,
-  events: true,
-  status: true,
-});
-
-export type InsertWebhook = z.infer<typeof insertWebhookSchema>;
-export type Webhook = typeof webhooks.$inferSelect;
-
-// Password reset tokens (for forgot password flow)
-export const passwordResetTokens = pgTable("password_reset_tokens", {
-  id: serial("id").notNull().primaryKey(),
-  userId: integer("user_id").references(() => users.id).notNull(),
-  token: text("token").notNull().unique(),
-  expiresAt: timestamp("expires_at").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).pick({
-  userId: true,
-  token: true,
-  expiresAt: true,
-});
-
-export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;
-export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
-
-// Enterprise: Alert Templates - Reusable templates for crisis types
-export const alertTemplates = pgTable("alert_templates", {
-  id: serial("id").notNull().primaryKey(),
-  name: text("name").notNull(),
-  category: text("category").notNull(),
-  severity: text("severity").notNull().default("medium"),
-  titleTemplate: text("title_template").notNull(),
-  bodyTemplate: text("body_template").notNull(),
-  channels: text("channels").array(),
-  escalationLevel: integer("escalation_level").default(3),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  createdBy: integer("created_by"),
-});
-
-export const insertAlertTemplateSchema = createInsertSchema(alertTemplates).pick({
-  name: true,
-  category: true,
-  severity: true,
-  titleTemplate: true,
-  bodyTemplate: true,
-  channels: true,
-  escalationLevel: true,
-  createdBy: true,
-});
-
-export type InsertAlertTemplate = z.infer<typeof insertAlertTemplateSchema>;
-export type AlertTemplate = typeof alertTemplates.$inferSelect;
-
-// Enterprise: Risk Zones - Geographic areas with risk levels
-export const riskZones = pgTable("risk_zones", {
-  id: serial("id").notNull().primaryKey(),
-  name: text("name").notNull(),
-  region: text("region").notNull().default("Nigeria"),
-  state: text("state"),
-  coordinates: jsonb("coordinates"),
-  riskLevel: text("risk_level").notNull(), // low, medium, high, critical
-  description: text("description"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export const insertRiskZoneSchema = createInsertSchema(riskZones).pick({
-  name: true,
   region: true,
-  state: true,
-  coordinates: true,
-  riskLevel: true,
-  description: true,
+  currentSeverity: true,
+  escalationRisk: true,
+  probability: true,
+  timeWindowDays: true,
+  keyDrivers: true,
+  recommendedActions: true,
+  modelSource: true,
 });
 
-export type InsertRiskZone = z.infer<typeof insertRiskZoneSchema>;
-export type RiskZone = typeof riskZones.$inferSelect;
-
-// Enterprise: Escalation Rules - SLA and escalation configuration
-export const escalationRules = pgTable("escalation_rules", {
+export const predictiveOutputs = pgTable("predictive_outputs", {
   id: serial("id").notNull().primaryKey(),
-  name: text("name").notNull(),
-  triggerSeverity: text("trigger_severity").notNull(),
-  slaMinutes: integer("sla_minutes").notNull(),
-  escalateToLevel: integer("escalate_to_level").notNull(),
-  notifyRoles: text("notify_roles").array(),
-  active: boolean("active").default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  kind: text("kind").notNull(),
+  region: text("region").notNull().default("Nigeria"),
+  modelSource: text("model_source").notNull().default("heuristic-v1"),
+  params: jsonb("params").notNull(),
+  result: jsonb("result").notNull(),
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
 });
 
-export const insertEscalationRuleSchema = createInsertSchema(escalationRules).pick({
-  name: true,
-  triggerSeverity: true,
-  slaMinutes: true,
-  escalateToLevel: true,
-  notifyRoles: true,
-  active: true,
+export const insertPredictiveOutputSchema = createInsertSchema(predictiveOutputs).pick({
+  kind: true,
+  region: true,
+  modelSource: true,
+  params: true,
+  result: true,
 });
 
-export type InsertEscalationRule = z.infer<typeof insertEscalationRuleSchema>;
-export type EscalationRule = typeof escalationRules.$inferSelect;
+export type InsertEscalationPrediction = z.infer<typeof insertEscalationPredictionSchema>;
+export type EscalationPrediction = typeof escalationPredictions.$inferSelect;
+
+export type InsertPredictiveOutput = z.infer<typeof insertPredictiveOutputSchema>;
+export type PredictiveOutput = typeof predictiveOutputs.$inferSelect;
 
 // SMS Logs - Track sent messages
 export const smsLogs = pgTable("sms_logs", {
@@ -1140,3 +512,226 @@ export const insertCmsContentSchema = createInsertSchema(cmsContent).pick({
 
 export type InsertCmsContent = z.infer<typeof insertCmsContentSchema>;
 export type CmsContent = typeof cmsContent.$inferSelect;
+
+export const incidentDiscussions = pgTable("incident_discussions", {
+  id: serial("id").notNull().primaryKey(),
+  incidentId: integer("incident_id").references(() => incidents.id).notNull(),
+  authorId: integer("author_id").references(() => users.id).notNull(),
+  role: text("role").notNull(),
+  comment: text("comment").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertIncidentDiscussionSchema = createInsertSchema(incidentDiscussions).pick({
+  incidentId: true,
+  authorId: true,
+  role: true,
+  comment: true,
+});
+
+export type InsertIncidentDiscussion = z.infer<typeof insertIncidentDiscussionSchema>;
+export type IncidentDiscussion = typeof incidentDiscussions.$inferSelect;
+
+export const incidentDispatches = pgTable("incident_dispatches", {
+  id: serial("id").notNull().primaryKey(),
+  incidentId: integer("incident_id").references(() => incidents.id).notNull(),
+  agency: text("agency").notNull(),
+  status: text("status").notNull().default("sent"),
+  comment: text("comment"),
+  dispatchedBy: integer("dispatched_by").references(() => users.id),
+  dispatchedAt: timestamp("dispatched_at").notNull().defaultNow(),
+});
+
+export const insertIncidentDispatchSchema = createInsertSchema(incidentDispatches).pick({
+  incidentId: true,
+  agency: true,
+  status: true,
+  comment: true,
+  dispatchedBy: true,
+});
+
+export type InsertIncidentDispatch = z.infer<typeof insertIncidentDispatchSchema>;
+export type IncidentDispatch = typeof incidentDispatches.$inferSelect;
+
+export const workflowTemplates = pgTable("workflow_templates", {
+  id: serial("id").notNull().primaryKey(),
+  name: text("name").notNull(),
+  entityType: text("entity_type").notNull(),
+  activityType: text("activity_type"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertWorkflowTemplateSchema = createInsertSchema(workflowTemplates).pick({
+  name: true,
+  entityType: true,
+  activityType: true,
+  isActive: true,
+  createdBy: true,
+});
+
+export type InsertWorkflowTemplate = z.infer<typeof insertWorkflowTemplateSchema>;
+export type WorkflowTemplate = typeof workflowTemplates.$inferSelect;
+
+export const workflowStages = pgTable("workflow_stages", {
+  id: serial("id").notNull().primaryKey(),
+  templateId: integer("template_id").references(() => workflowTemplates.id).notNull(),
+  name: text("name").notNull(),
+  stageOrder: integer("stage_order").notNull(),
+  allowedRoles: text("allowed_roles").array(),
+});
+
+export const insertWorkflowStageSchema = createInsertSchema(workflowStages).pick({
+  templateId: true,
+  name: true,
+  stageOrder: true,
+  allowedRoles: true,
+});
+
+export type InsertWorkflowStage = z.infer<typeof insertWorkflowStageSchema>;
+export type WorkflowStage = typeof workflowStages.$inferSelect;
+
+export const workflowTransitions = pgTable("workflow_transitions", {
+  id: serial("id").notNull().primaryKey(),
+  templateId: integer("template_id").references(() => workflowTemplates.id).notNull(),
+  fromStageId: integer("from_stage_id").references(() => workflowStages.id).notNull(),
+  toStageId: integer("to_stage_id").references(() => workflowStages.id).notNull(),
+  allowedRoles: text("allowed_roles").array(),
+});
+
+export const insertWorkflowTransitionSchema = createInsertSchema(workflowTransitions).pick({
+  templateId: true,
+  fromStageId: true,
+  toStageId: true,
+  allowedRoles: true,
+});
+
+export type InsertWorkflowTransition = z.infer<typeof insertWorkflowTransitionSchema>;
+export type WorkflowTransition = typeof workflowTransitions.$inferSelect;
+
+export const workflowInstances = pgTable("workflow_instances", {
+  id: serial("id").notNull().primaryKey(),
+  templateId: integer("template_id").references(() => workflowTemplates.id).notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: integer("entity_id").notNull(),
+  currentStageId: integer("current_stage_id").references(() => workflowStages.id).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertWorkflowInstanceSchema = createInsertSchema(workflowInstances).pick({
+  templateId: true,
+  entityType: true,
+  entityId: true,
+  currentStageId: true,
+});
+
+export type InsertWorkflowInstance = z.infer<typeof insertWorkflowInstanceSchema>;
+export type WorkflowInstance = typeof workflowInstances.$inferSelect;
+
+export const workflowHistory = pgTable("workflow_history", {
+  id: serial("id").notNull().primaryKey(),
+  instanceId: integer("instance_id").references(() => workflowInstances.id).notNull(),
+  fromStageId: integer("from_stage_id").references(() => workflowStages.id),
+  toStageId: integer("to_stage_id").references(() => workflowStages.id),
+  movedBy: integer("moved_by").references(() => users.id),
+  comment: text("comment"),
+  movedAt: timestamp("moved_at").notNull().defaultNow(),
+});
+
+export type WorkflowHistory = typeof workflowHistory.$inferSelect;
+
+export {
+  alerts,
+  insertAlertSchema,
+  responsePlans,
+  insertResponsePlanSchema,
+  responseTeams,
+  insertResponseTeamSchema,
+  responseActivities,
+  insertResponseActivitySchema,
+  riskAnalyses,
+  insertRiskAnalysisSchema,
+  accessLogs,
+  insertAccessLogSchema,
+  cases,
+  insertCaseSchema,
+  caseNotes,
+  insertCaseNoteSchema,
+  settings,
+  insertSettingSchema,
+  reports,
+  insertReportSchema,
+  notifications,
+  insertNotificationSchema,
+  passwordResetTokens,
+  insertPasswordResetTokenSchema,
+  apiKeys,
+  insertApiKeySchema,
+  webhooks,
+  insertWebhookSchema,
+  feedbacks,
+  insertFeedbackSchema,
+  riskZones,
+  insertRiskZoneSchema,
+  escalationRules,
+  insertEscalationRuleSchema,
+  alertTemplates,
+  insertAlertTemplateSchema,
+  thresholdAlertRules,
+  insertThresholdAlertRuleSchema,
+  peaceOpportunities,
+  insertPeaceOpportunitySchema,
+  incidentAnomalies,
+  insertIncidentAnomalySchema,
+  dataQualityIssues,
+  insertDataQualityIssueSchema,
+} from "./schema-SamSPC";
+
+export type {
+  Alert,
+  InsertAlert,
+  ResponsePlan,
+  InsertResponsePlan,
+  ResponseTeam,
+  InsertResponseTeam,
+  ResponseActivity,
+  InsertResponseActivity,
+  RiskAnalysis,
+  InsertRiskAnalysis,
+  AccessLog,
+  InsertAccessLog,
+  Case,
+  InsertCase,
+  CaseNote,
+  InsertCaseNote,
+  Setting,
+  InsertSetting,
+  Report,
+  InsertReport,
+  Notification,
+  InsertNotification,
+  PasswordResetToken,
+  InsertPasswordResetToken,
+  ApiKey,
+  InsertApiKey,
+  Webhook,
+  InsertWebhook,
+  Feedback,
+  InsertFeedback,
+  RiskZone,
+  InsertRiskZone,
+  EscalationRule,
+  InsertEscalationRule,
+  AlertTemplate,
+  InsertAlertTemplate,
+  ThresholdAlertRule,
+  InsertThresholdAlertRule,
+  InsertPeaceOpportunity,
+  PeaceOpportunityRow,
+  IncidentAnomaly,
+  InsertIncidentAnomaly,
+  DataQualityIssue,
+  InsertDataQualityIssue,
+} from "./schema-SamSPC";
