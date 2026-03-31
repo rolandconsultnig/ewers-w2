@@ -130,9 +130,18 @@ export function getEffectivePermissionIdsForUser(user: UserForDepartmentAccess):
     return resolveBasePermissionIds(user);
   }
 
+  const raw = user.permissions;
+  const hasExplicitPerUserPermissions =
+    Array.isArray(raw) && raw.length > 0 && !(raw.length === 1 && raw[0] === "view");
+
   const base = resolveBasePermissionIds(user);
   const dept = normalizeDepartmentId(user.department);
   const allowed = ALLOWLIST[dept];
+
+  // Explicit per-user feature grants should be honored (even across departments).
+  if (hasExplicitPerUserPermissions) {
+    return base;
+  }
 
   if (base.length === 1 && base[0] === "view") {
     return SHARED_FEATURE_IDS.filter((id) => allowed.has(id));
