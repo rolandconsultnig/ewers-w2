@@ -245,10 +245,10 @@ export function setupAuth(app: Express) {
   app.post("/api/user/create", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
-    // Users with security clearance level 5 or higher can create new users
+    // Feature permission based access (department + role scoped)
     const currentUser = req.user as SelectUser;
-    if (currentUser.securityLevel < 5 && currentUser.role !== 'admin') {
-      return res.status(403).json({ error: "Creating users requires security clearance level 5 or higher" });
+    if (!hasPermission(currentUser, "user_management")) {
+      return res.status(403).json({ error: "Insufficient permissions" });
     }
     
     try {
@@ -286,8 +286,8 @@ export function setupAuth(app: Express) {
   app.post("/api/users/:id/reset-password", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const currentUser = req.user as SelectUser;
-    if (currentUser.securityLevel < 5 && currentUser.role !== "admin") {
-      return res.status(403).json({ error: "Admin access required" });
+    if (!hasPermission(currentUser, "user_management")) {
+      return res.status(403).json({ error: "Insufficient permissions" });
     }
 
     const id = parseInt(req.params.id);
@@ -418,10 +418,10 @@ export function setupAuth(app: Express) {
   app.get("/api/user/all", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
-    // Users with security clearance level 5 or higher can access user management
+    // Feature permission based access (department + role scoped)
     const user = req.user as SelectUser;
-    if (user.securityLevel < 5 && user.role !== 'admin') {
-      return res.status(403).json({ error: "User management requires security clearance level 5 or higher" });
+    if (!hasPermission(user, "user_management")) {
+      return res.status(403).json({ error: "Insufficient permissions" });
     }
     
     try {

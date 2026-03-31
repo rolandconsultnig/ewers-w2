@@ -2,7 +2,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { createServer, type Server } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { storage } from "./storage";
-import { setupAuth } from "./auth";
+import { setupAuth, hasPermission } from "./auth";
 import { registerCmsRoutes } from "./routes/cms";
 import { setupWorkflowRoutes } from "./routes/workflows";
 import { setupElectionMonitoringRoutes } from "./routes/election-monitoring";
@@ -1574,7 +1574,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/permissions/features", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const currentUser = req.user as SelectUser;
-    if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    if (!hasPermission(currentUser, "user_management")) return res.status(403).json({ error: "Insufficient permissions" });
     res.json({ features: PLATFORM_FEATURES, byCategory: getFeaturesByCategory() });
   });
 
@@ -1582,7 +1582,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/permissions/roles", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const currentUser = req.user as SelectUser;
-    if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    if (!hasPermission(currentUser, "user_management")) return res.status(403).json({ error: "Insufficient permissions" });
     try {
       const templates = await getRolePermissionTemplates();
       res.json(templates);
@@ -1594,7 +1594,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/permissions/roles/:role", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const currentUser = req.user as SelectUser;
-    if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    if (!hasPermission(currentUser, "user_management")) return res.status(403).json({ error: "Insufficient permissions" });
     const role = (req.params.role || "").toLowerCase();
     const allowedRoles = ["admin", "coordinator", "analyst", "field_agent", "user"];
     if (!allowedRoles.includes(role)) return res.status(400).json({ error: "Invalid role" });
@@ -1616,7 +1616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/users", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const currentUser = req.user as SelectUser;
-    if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    if (!hasPermission(currentUser, "user_management")) return res.status(403).json({ error: "Insufficient permissions" });
     const users = await storage.getAllUsers();
     const safe = users.map(({ password, ...rest }) => rest);
     res.json(safe);
@@ -1624,7 +1624,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/users/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const currentUser = req.user as SelectUser;
-    if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    if (!hasPermission(currentUser, "user_management")) return res.status(403).json({ error: "Insufficient permissions" });
     const id = parseInt(req.params.id);
     const user = await storage.getUser(id);
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -1633,7 +1633,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/users/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const currentUser = req.user as SelectUser;
-    if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    if (!hasPermission(currentUser, "user_management")) return res.status(403).json({ error: "Insufficient permissions" });
     const id = parseInt(req.params.id);
     const { password, permissions, department: bodyDept, ...rest } = req.body;
     const allowedIds = new Set(PLATFORM_FEATURES.map((f) => f.id));
@@ -1672,7 +1672,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/users/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const currentUser = req.user as SelectUser;
-    if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    if (!hasPermission(currentUser, "user_management")) return res.status(403).json({ error: "Insufficient permissions" });
     const id = parseInt(req.params.id);
     if (id === currentUser.id) return res.status(400).json({ error: "Cannot delete your own account" });
     const user = await storage.getUser(id);
