@@ -52,7 +52,8 @@ import { useI18n } from "@/contexts/I18nContext";
 
 // Import the IPCR logo
 import ipcr_logo from "@assets/Institute-For-Peace-And-Conflict-Resolution.jpg";
-import { ROUTE_TO_PERMISSION, getDefaultPermissionsForRole } from "@shared/permissions";
+import { ROUTE_TO_PERMISSION } from "@shared/permissions";
+import { userHasEffectivePermission } from "@shared/department-access";
 
 interface SidebarProps {
   isMobileMenuOpen: boolean;
@@ -67,21 +68,12 @@ export default function Sidebar({ isMobileMenuOpen, closeMobileMenu }: SidebarPr
   const isActive = (path: string) => location === path;
 
   const canAccessPath = (path: string) => {
+    if (!user) return false;
     const perm = ROUTE_TO_PERMISSION[path];
     if (!perm) return true;
-    if (user?.role === "admin") return true;
-    const raw = (user as { permissions?: string[] })?.permissions;
-    // Use role defaults when permissions missing, empty, or legacy ['view'] so UI reflects role-based access
-    const isLegacyView = Array.isArray(raw) && raw.length === 1 && raw[0] === "view";
-    const p =
-      Array.isArray(raw) && raw.length > 0 && !isLegacyView
-        ? raw
-        : getDefaultPermissionsForRole(user?.role ?? "user");
-    if (p.includes("*")) return true;
-    if (p.includes(perm)) return true;
-    if (path === "/social-media" && p.includes("social_media")) return true;
-    const viewOnlyPaths = ["dashboard", "map", "search"];
-    return viewOnlyPaths.includes(perm) && p.includes("view");
+    if (userHasEffectivePermission(user, perm)) return true;
+    if (path === "/social-media" && userHasEffectivePermission(user, "social_media")) return true;
+    return false;
   };
 
   // Define module groups for the sidebar

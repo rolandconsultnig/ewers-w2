@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Request, Response } from "express";
 import { insertCmsContentSchema } from "@shared/schema";
 import { storage } from "../storage";
 
@@ -11,7 +12,7 @@ export const cmsContentSchema = z.object({
 
 export function registerCmsRoutes(app: any) {
   // Get all CMS content
-  app.get("/api/cms/content", async (req, res) => {
+  app.get("/api/cms/content", async (req: Request, res: Response) => {
     try {
       const contents = await storage.getCmsContents();
       res.json(contents);
@@ -22,7 +23,7 @@ export function registerCmsRoutes(app: any) {
   });
 
   // Get specific CMS content by section
-  app.get("/api/cms/content/:section", async (req, res) => {
+  app.get("/api/cms/content/:section", async (req: Request, res: Response) => {
     try {
       const { section } = req.params;
       const content = await storage.getCmsContentBySection(section);
@@ -39,7 +40,7 @@ export function registerCmsRoutes(app: any) {
   });
 
   // Create or update CMS content
-  app.put("/api/cms/content/:section", async (req, res) => {
+  app.put("/api/cms/content/:section", async (req: Request, res: Response) => {
     try {
       if (!req.isAuthenticated()) {
         return res.status(401).json({ error: "Unauthorized" });
@@ -85,7 +86,7 @@ export function registerCmsRoutes(app: any) {
   });
 
   // Delete CMS content
-  app.delete("/api/cms/content/:section", async (req, res) => {
+  app.delete("/api/cms/content/:section", async (req: Request, res: Response) => {
     try {
       if (!req.isAuthenticated()) {
         return res.status(401).json({ error: "Unauthorized" });

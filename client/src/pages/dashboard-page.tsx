@@ -12,24 +12,35 @@ import { ClipboardList, Bell, Users, Database, TrendingUp, AlertTriangle, CheckC
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
+type DashboardIncident = { id: number };
+type DashboardAlert = {
+  id: number;
+  title: string;
+  description: string;
+  severity: string;
+  generatedAt: string | Date;
+};
+type DashboardTeam = { id: number };
+type DashboardSource = { id: number };
+
 export default function DashboardPage() {
   const [showAlertBanner, setShowAlertBanner] = useState(true);
   const [alertDialogOpen, setAlertDialogOpen] = useState(false);
   const [selectedAlertId, setSelectedAlertId] = useState<number | null>(null);
 
-  const { data: incidents } = useQuery({
+  const { data: incidents = [] } = useQuery<DashboardIncident[]>({
     queryKey: ["/api/incidents"],
   });
 
-  const { data: alerts } = useQuery({
+  const { data: alerts = [] } = useQuery<DashboardAlert[]>({
     queryKey: ["/api/alerts/active"],
   });
 
-  const { data: teams } = useQuery({
+  const { data: teams = [] } = useQuery<DashboardTeam[]>({
     queryKey: ["/api/response-teams"],
   });
 
-  const { data: sources } = useQuery({
+  const { data: sources = [] } = useQuery<DashboardSource[]>({
     queryKey: ["/api/data-sources"],
   });
 
@@ -50,14 +61,14 @@ export default function DashboardPage() {
   ];
 
   // Sample map risk points
-  const riskPoints = [
+  const riskPoints: Array<{ id: number; position: [number, number]; title: string; risk: "low" | "medium" | "high" }> = [
     { id: 1, position: [10, 30], title: "Armed group movement", risk: 'high' as const },
     { id: 2, position: [0, 0], title: "Resource scarcity", risk: 'medium' as const },
     { id: 3, position: [15, -20], title: "Political tension", risk: 'medium' as const },
     { id: 4, position: [-15, 15], title: "Displacement indicators", risk: 'low' as const },
   ];
 
-  const selectedAlert = alerts?.find(alert => alert.id === selectedAlertId);
+  const selectedAlert = alerts.find((alert) => alert.id === selectedAlertId);
 
   return (
     <MainLayout title="Dashboard">

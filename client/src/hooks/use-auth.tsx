@@ -8,13 +8,16 @@ import { insertUserSchema, User as SelectUser, InsertUser } from "@shared/schema
 import { getQueryFn, apiRequest, queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
+/** API user may include server-computed department-scoped permissions */
+export type SessionUser = SelectUser & { effectivePermissions?: string[] };
+
 type AuthContextType = {
-  user: SelectUser | null;
+  user: SessionUser | null;
   isLoading: boolean;
   error: Error | null;
-  loginMutation: UseMutationResult<SelectUser, Error, LoginData>;
+  loginMutation: UseMutationResult<SessionUser, Error, LoginData>;
   logoutMutation: UseMutationResult<void, Error, void>;
-  registerMutation: UseMutationResult<SelectUser, Error, InsertUser>;
+  registerMutation: UseMutationResult<SessionUser, Error, InsertUser>;
 };
 
 type LoginData = Pick<InsertUser, "username" | "password">;
@@ -26,7 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     data: user,
     error,
     isLoading,
-  } = useQuery<SelectUser | undefined, Error>({
+  } = useQuery<SessionUser | undefined, Error>({
     queryKey: ["/api/user"],
     queryFn: getQueryFn({ on401: "returnNull" }),
     refetchOnMount: false,
@@ -52,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return data.user ?? data;
     },
-    onSuccess: (user: SelectUser) => {
+    onSuccess: (user: SessionUser) => {
       // Prevent the initial /api/user auth check request (fired on app load)
       // from overwriting the freshly logged-in user when it resolves later.
       queryClient.cancelQueries({ queryKey: ["/api/user"] });
@@ -76,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await apiRequest("POST", "/api/register", credentials);
       return await res.json();
     },
-    onSuccess: (user: SelectUser) => {
+    onSuccess: (user: SessionUser) => {
       queryClient.cancelQueries({ queryKey: ["/api/user"] });
       queryClient.setQueryData(["/api/user"], user);
       toast({

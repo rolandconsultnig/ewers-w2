@@ -48,6 +48,21 @@ export const incidentAttachmentsUpload = multer({
   limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE || "26214400", 10) },
 }).array("files", 10);
 
+/** Public report: images and videos only, max 5 files (optional attachment). */
+const publicMediaFilter: multer.Options["fileFilter"] = (_req, file, cb) => {
+  const ok = file.mimetype.startsWith("image/") || file.mimetype.startsWith("video/");
+  if (ok) cb(null, true);
+  else cb(new Error(`Only images and videos are allowed for public reports (got ${file.mimetype})`));
+};
+
+export const publicIncidentMediaUpload = multer({
+  storage,
+  fileFilter: publicMediaFilter,
+  limits: {
+    fileSize: parseInt(process.env.MAX_PUBLIC_MEDIA_FILE_SIZE || "20971520", 10),
+  },
+}).array("media", 5);
+
 export function getUploadSubdir(mimetype: string): string {
   if (mimetype.startsWith("image/")) return "images";
   if (mimetype.startsWith("video/")) return "videos";

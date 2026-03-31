@@ -15,9 +15,9 @@ export default defineConfig({
     port: 4342,
     strictPort: true,
     proxy: {
-      "/api": { target: "http://localhost:4343", changeOrigin: true },
-      "/socket.io": { target: "http://localhost:4343", ws: true },
-      "/uploads": { target: "http://localhost:4343", changeOrigin: true },
+      "/api": { target: "http://localhost:5151", changeOrigin: true },
+      "/socket.io": { target: "http://localhost:5151", ws: true },
+      "/uploads": { target: "http://localhost:5151", changeOrigin: true },
     },
     fs: {
       strict: false,

@@ -63,12 +63,13 @@ export function setupIncidentReviewRoutes(app: Router, storage: IStorage) {
       });
 
       // Log audit
-      await auditService.logAudit(req, {
+      await auditService.logAudit({
         userId: user.id,
-        action: "incident_accepted",
+        action: "update",
         resource: "incident",
-        resourceId: incidentId.toString(),
-        details: JSON.stringify({ incidentTitle: incident.title }),
+        resourceId: incidentId,
+        details: { incidentTitle: incident.title, event: "incident_accepted" },
+        ...auditService.getClientInfo(req),
       });
 
       res.json({
@@ -102,15 +103,17 @@ export function setupIncidentReviewRoutes(app: Router, storage: IStorage) {
       });
 
       // Log audit
-      await auditService.logAudit(req, {
+      await auditService.logAudit({
         userId: user.id,
-        action: "incident_discarded",
+        action: "update",
         resource: "incident",
-        resourceId: incidentId.toString(),
-        details: JSON.stringify({ 
+        resourceId: incidentId,
+        details: {
           incidentTitle: incident.title,
-          reason: reason || "No reason provided"
-        }),
+          reason: reason || "No reason provided",
+          event: "incident_discarded",
+        },
+        ...auditService.getClientInfo(req),
       });
 
       res.json({
@@ -144,12 +147,12 @@ export function setupIncidentReviewRoutes(app: Router, storage: IStorage) {
         accepted.push(updated);
       }
 
-      await auditService.logAudit(req, {
+      await auditService.logAudit({
         userId: user.id,
-        action: "incidents_batch_accepted",
+        action: "update",
         resource: "incident",
-        resourceId: "batch",
-        details: JSON.stringify({ count: accepted.length, incidentIds }),
+        details: { count: accepted.length, incidentIds, event: "incidents_batch_accepted" },
+        ...auditService.getClientInfo(req),
       });
 
       res.json({
@@ -183,16 +186,17 @@ export function setupIncidentReviewRoutes(app: Router, storage: IStorage) {
         discarded.push(updated);
       }
 
-      await auditService.logAudit(req, {
+      await auditService.logAudit({
         userId: user.id,
-        action: "incidents_batch_discarded",
+        action: "update",
         resource: "incident",
-        resourceId: "batch",
-        details: JSON.stringify({ 
+        details: {
           count: discarded.length, 
           incidentIds,
-          reason: reason || "No reason provided"
-        }),
+          reason: reason || "No reason provided",
+          event: "incidents_batch_discarded",
+        },
+        ...auditService.getClientInfo(req),
       });
 
       res.json({

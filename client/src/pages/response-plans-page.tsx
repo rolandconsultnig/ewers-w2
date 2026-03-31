@@ -324,7 +324,8 @@ export default function ResponsePlansPage() {
       teamForm.reset({
         name: team.name,
         type: team.type,
-        responseCategory: (team as { responseCategory?: string }).responseCategory ?? "kinetic",
+        responseCategory:
+          ((team as { responseCategory?: "kinetic" | "non_kinetic" | null }).responseCategory ?? "kinetic"),
         agency: (team as { agency?: string | null }).agency ?? null,
         status: team.status === "active" ? "active" : "inactive",
         region: team.region ?? "Nigeria",

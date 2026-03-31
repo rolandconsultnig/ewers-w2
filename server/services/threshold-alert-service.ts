@@ -103,11 +103,11 @@ export async function evaluateThresholdRules(): Promise<{ triggered: number; cre
         .insert(alerts)
         .values({
           title: rule.name,
-          message,
+          description: message,
           severity: (rule.severity as "low" | "medium" | "high" | "critical") || "high",
           status: "active",
           source: "threshold_rule",
-          metadata: { thresholdRuleId: rule.id },
+          recipients: null,
         })
         .returning();
       if (newAlert) created++;

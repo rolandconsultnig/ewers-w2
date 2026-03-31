@@ -14,7 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
-import { Mic, AlertTriangle, MapPin, Loader2, Play, List, Volume2 } from "lucide-react";
+import { Mic, AlertTriangle, MapPin, Loader2, List, RefreshCw } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
 
@@ -46,7 +47,7 @@ export default function VoiceIncidentPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [audioBlob, setAudioBlob] = useState<Blob | File | null>(null);
-  const [playingId, setPlayingId] = useState<number | null>(null);
+  const [retranscribingId, setRetranscribingId] = useState<number | null>(null);
 
   const { data: voiceIncidents = [], refetch: refetchVoice } = useQuery<VoiceIncident[]>({
     queryKey: ["/api/incidents/voice"],
@@ -548,26 +549,40 @@ export default function VoiceIncidentPage() {
                         {inc.audioRecordingUrl && (
                           <Button
                             size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              if (playingId === inc.id) {
-                                setPlayingId(null);
-                                return;
+                            variant="secondary"
+                            disabled={retranscribingId === inc.id}
+                            className="shrink-0 gap-1"
+                            onClick={async () => {
+                              setRetranscribingId(inc.id);
+                              try {
+                                const res = await apiRequest("POST", `/api/incidents/${inc.id}/retranscribe`, {});
+                                await res.json();
+                                toast({ title: "Transcription updated" });
+                                await refetchVoice();
+                              } catch (e) {
+                                toast({
+                                  title: "Transcription failed",
+                                  description: e instanceof Error ? e.message : "Try again",
+                                  variant: "destructive",
+                                });
+                              } finally {
+                                setRetranscribingId(null);
                               }
-                              setPlayingId(inc.id);
-                              const audio = new Audio(window.location.origin + inc.audioRecordingUrl);
-                              audio.onended = () => setPlayingId(null);
-                              audio.play();
                             }}
                           >
-                            {playingId === inc.id ? (
-                              <Volume2 className="h-4 w-4 animate-pulse" />
-                            ) : (
-                              <Play className="h-4 w-4" />
-                            )}
+                            <RefreshCw className={`h-4 w-4 ${retranscribingId === inc.id ? "animate-spin" : ""}`} />
+                            Transcribe
                           </Button>
                         )}
                       </div>
+                      {inc.audioRecordingUrl && (
+                        <audio
+                          controls
+                          className="w-full max-w-md mt-3"
+                          src={inc.audioRecordingUrl}
+                          preload="metadata"
+                        />
+                      )}
                       {inc.audioTranscription && (
                         <div className="mt-3 p-2 bg-muted/50 rounded text-sm">
                           <p className="text-xs font-medium text-muted-foreground mb-1">Transcription</p>

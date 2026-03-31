@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { setupAuth } from "./auth";
 import { registerCmsRoutes } from "./routes/cms";
 import { setupWorkflowRoutes } from "./routes/workflows";
+import { setupElectionMonitoringRoutes } from "./routes/election-monitoring";
 import { z } from "zod";
 import {
   insertDataSourceSchema,
@@ -57,7 +58,7 @@ import { getSlaStatus, checkAndEscalateBreachedAlerts } from "./services/escalat
 import { getSystemHealth } from "./services/health-service";
 import * as auditService from "./services/audit-service";
 import { singleUpload } from "./services/file-upload";
-import { incidentAttachmentsUpload, getUploadSubdir } from "./services/incident-attachments-upload";
+import { incidentAttachmentsUpload, getUploadSubdir, publicIncidentMediaUpload } from "./services/incident-attachments-upload";
 import { importFile } from "./services/file-import-service";
 import { analyzeCrisisWithGPT, generateConflictForecast, getIncidentRecommendations } from "./services/ai-services";
 import { predictiveModelService } from "./services/predictive-model-service";
@@ -77,6 +78,7 @@ import {
   accessLogs,
 } from "@shared/schema";
 import { PLATFORM_FEATURES, getFeaturesByCategory } from "@shared/permissions";
+import { isDepartmentId } from "@shared/department-access";
 import { getRolePermissionTemplates, saveRolePermissionTemplate } from "./role-permissions";
 import { desc, eq, count, sql } from "drizzle-orm";
 import path from "path";
@@ -131,6 +133,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register workflow process maker routes
   setupWorkflowRoutes(app, storage);
+
+  setupElectionMonitoringRoutes(app);
 
   // Debug endpoint to diagnose incident count discrepancy
   app.get("/api/debug/incident-count", async (_req, res) => {
@@ -1061,9 +1065,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
           const rows = [
             "ID,Title,Description,Severity,Status,Category,Region,State,Location,Latitude,Longitude,Reported At",
-            ...filtered.map((i) =>
-              [i.id, esc(i.title), esc(i.description), i.severity, i.status, i.category ?? "", i.region ?? "", i.state ?? "", esc(i.location ?? ""), i.latitude ?? "", i.longitude ?? "", i.reportedAt].join(",")
-            ),
+            ...filtered.map((i) => {
+              const coords =
+                i.coordinates && typeof i.coordinates === "object"
+                  ? (i.coordinates as { latitude?: number; lat?: number; longitude?: number; lng?: number; lon?: number })
+                  : null;
+              const latitude = coords?.latitude ?? coords?.lat ?? "";
+              const longitude = coords?.longitude ?? coords?.lng ?? coords?.lon ?? "";
+              return [
+                i.id,
+                esc(i.title),
+                esc(i.description),
+                i.severity,
+                i.status,
+                i.category ?? "",
+                i.region ?? "",
+                i.state ?? "",
+                esc(i.location ?? ""),
+                latitude,
+                longitude,
+                i.reportedAt,
+              ].join(",");
+            }),
           ];
           res.setHeader("Content-Type", "text/csv");
           res.setHeader("Content-Disposition", `attachment; filename="ewer-incidents-${dateStr}.csv"`);
@@ -1501,7 +1524,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const currentUser = req.user as SelectUser;
     if (currentUser.securityLevel < 5 && currentUser.role !== "admin") return res.status(403).json({ error: "Admin access required" });
     const id = parseInt(req.params.id);
-    const { password, permissions, ...rest } = req.body;
+    const { password, permissions, department: bodyDept, ...rest } = req.body;
     const allowedIds = new Set(PLATFORM_FEATURES.map((f) => f.id));
     const sanitizedPermissions =
       Array.isArray(permissions) && permissions.length > 0
@@ -1509,7 +1532,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : undefined;
     const user = await storage.getUser(id);
     if (!user) return res.status(404).json({ error: "User not found" });
-    const updatePayload = { ...rest, ...(sanitizedPermissions !== undefined ? { permissions: sanitizedPermissions } : {}) };
+    let departmentUpdate: { department?: string } = {};
+    if (bodyDept !== undefined) {
+      const d = typeof bodyDept === "string" ? bodyDept.trim().toLowerCase() : "";
+      if (!isDepartmentId(d)) {
+        return res.status(400).json({
+          error: "Invalid department (use early_warning, election_monitoring, communications, administration)",
+        });
+      }
+      departmentUpdate = { department: d };
+    }
+    const updatePayload = {
+      ...rest,
+      ...departmentUpdate,
+      ...(sanitizedPermissions !== undefined ? { permissions: sanitizedPermissions } : {}),
+    };
     const updated = await storage.updateUser(id, updatePayload);
     await auditService.logAudit({
       userId: currentUser.id,
@@ -1568,78 +1605,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(getLgaOptionsForState(state));
   });
 
-  app.post("/api/public/incidents", async (req, res) => {
-    try {
-      // Extract the necessary incident data from the request
-      const { 
-        title, description, location, region, actorType, actorName,
-        contactName, contactEmail, contactPhone, category, state, lga,
-        town, incidentOccurredAt, lat, lng,
-      } = req.body;
-
-      const users = await storage.getAllUsers();
-      const reporterUser = users.find((u) => u.role === "admin") ?? users[0];
-      if (!reporterUser) {
-        return res.status(500).json({ error: "No system user exists to attribute public reports" });
+  app.post(
+    "/api/public/incidents",
+    (req, res, next) => {
+      const ct = req.headers["content-type"] || "";
+      if (ct.includes("multipart/form-data")) {
+        return publicIncidentMediaUpload(req, res, next);
       }
+      next();
+    },
+    async (req, res) => {
+      try {
+        const body = req.body as Record<string, unknown>;
+        const files = (req as Request & { files?: Express.Multer.File[] }).files;
 
-      const latN = lat != null ? Number(lat) : NaN;
-      const lngN = lng != null ? Number(lng) : NaN;
-      const coordinates = {
-        lat: Number.isFinite(latN) ? latN : 0,
-        lng: Number.isFinite(lngN) ? lngN : 0,
-        address: location,
-        reporterInfo: {
-          name: contactName,
-          email: contactEmail || "",
-          phone: contactPhone,
-        },
-        actors: {
-          type: actorType,
-          name: actorName,
-        },
-      };
-      
-      // Format the data to match the incident schema
-      let occurred: Date | undefined;
-      if (typeof incidentOccurredAt === "string" && incidentOccurredAt.trim()) {
-        const d = new Date(incidentOccurredAt);
-        if (!Number.isNaN(d.getTime())) occurred = d;
+        const title = String(body.title ?? "").trim();
+        const description = String(body.description ?? "").trim();
+        const location = String(body.location ?? "").trim();
+        const region = String(body.region ?? "").trim();
+        const actorType = body.actorType;
+        const actorName = body.actorName;
+        const contactName = body.contactName;
+        const contactEmail = body.contactEmail;
+        const contactPhone = body.contactPhone;
+        const category = body.category;
+        const state = body.state;
+        const lga = body.lga;
+        const town = body.town;
+        const incidentOccurredAt = body.incidentOccurredAt;
+
+        const latRaw = body.latitude ?? body.lat;
+        const lngRaw = body.longitude ?? body.lng;
+        const latN = latRaw != null && String(latRaw).trim() !== "" ? Number(latRaw) : NaN;
+        const lngN = lngRaw != null && String(lngRaw).trim() !== "" ? Number(lngRaw) : NaN;
+        const hasGeo = Number.isFinite(latN) && Number.isFinite(lngN);
+
+        const mediaUrls =
+          Array.isArray(files) && files.length > 0
+            ? files.map((f) => {
+                const subdir = getUploadSubdir(f.mimetype);
+                return `/uploads/${subdir}/${f.filename}`;
+              })
+            : [];
+
+        const users = await storage.getAllUsers();
+        const reporterUser = users.find((u) => u.role === "admin") ?? users[0];
+        if (!reporterUser) {
+          return res.status(500).json({ error: "No system user exists to attribute public reports" });
+        }
+
+        const coordinates: Record<string, unknown> = {
+          address: location,
+          reporterInfo: {
+            name: contactName,
+            email: contactEmail || "",
+            phone: contactPhone,
+          },
+          actors: {
+            type: actorType,
+            name: actorName,
+          },
+        };
+        if (hasGeo) {
+          coordinates.lat = latN;
+          coordinates.lng = lngN;
+        }
+
+        let occurred: Date | undefined;
+        if (typeof incidentOccurredAt === "string" && incidentOccurredAt.trim()) {
+          const d = new Date(incidentOccurredAt);
+          if (!Number.isNaN(d.getTime())) occurred = d;
+        }
+
+        const incidentData = {
+          title,
+          description,
+          location,
+          region,
+          state: typeof state === "string" ? state : undefined,
+          lga: typeof lga === "string" ? lga : undefined,
+          town: typeof town === "string" ? town : undefined,
+          incidentOccurredAt: occurred,
+          severity: "medium",
+          status: "pending",
+          category: (typeof category === "string" && category) || "conflict",
+          reportedBy: reporterUser.id,
+          coordinates,
+          verificationStatus: "unverified",
+          impactedPopulation: 0,
+          mediaUrls,
+          reportingMethod: "web_form",
+        };
+
+        const incident = await storage.createIncident(incidentData);
+        res.status(201).json(incident);
+      } catch (error) {
+        console.error("Error creating public incident:", error);
+        if (error instanceof z.ZodError) {
+          console.error("Validation error:", JSON.stringify(error.errors, null, 2));
+          return res.status(400).json({ error: error.errors });
+        }
+        res.status(400).json({ error: "Failed to create incident", details: (error as Error).message });
       }
-
-      const incidentData = {
-        title,
-        description,
-        location, // Use the provided location
-        region,
-        state: typeof state === "string" ? state : undefined,
-        lga: typeof lga === "string" ? lga : undefined,
-        town: typeof town === "string" ? town : undefined,
-        incidentOccurredAt: occurred,
-        severity: "medium", // Default severity for public reports
-        status: "pending", // Incidents from public start as pending
-        category: category || "conflict", // Default category
-        reportedBy: reporterUser.id,
-        coordinates,
-        verificationStatus: "unverified",
-        // Add any other required fields with sensible defaults
-        impactedPopulation: 0,
-        // Store the reporter contact info and actor information in the metadata
-        mediaUrls: []
-      };
-
-      // Add the incident to the database
-      const incident = await storage.createIncident(incidentData);
-      res.status(201).json(incident);
-    } catch (error) {
-      console.error("Error creating public incident:", error);
-      if (error instanceof z.ZodError) {
-        console.error("Validation error:", JSON.stringify(error.errors, null, 2));
-        return res.status(400).json({ error: error.errors });
-      }
-      res.status(400).json({ error: "Failed to create incident", details: (error as Error).message });
-    }
-  });
+    },
+  );
 
   // Alerts API
   app.get("/api/alerts", async (req, res) => {

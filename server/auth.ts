@@ -7,8 +7,9 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import jwt from "jsonwebtoken";
 import { storage } from "./storage";
-import { User as SelectUser } from "@shared/schema";
+import { User as SelectUser, insertUserSchema } from "@shared/schema";
 import { getPermissionsForRole } from "./role-permissions";
+import { getEffectivePermissionIdsForUser, isDepartmentId } from "@shared/department-access";
 import { db } from "./db";
 import { passwordResetTokens } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -21,7 +22,7 @@ declare global {
 
 const scryptAsync = promisify(scrypt);
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "ewers-jwt-secret";
-const JWT_EXPIRES = process.env.JWT_EXPIRES || "7d";
+const JWT_EXPIRES = (process.env.JWT_EXPIRES || "7d") as jwt.SignOptions["expiresIn"];
 
 export function generateJWT(user: SelectUser): string {
   return jwt.sign(
@@ -40,10 +41,16 @@ export function verifyJWT(token: string): { id: number; username: string; role: 
   }
 }
 
-/** Return user for API responses: strip password, keep permissions and all else. */
-export function toSafeUser(user: SelectUser): Omit<SelectUser, "password"> & { password?: never } {
+export type SafeUser = Omit<SelectUser, "password"> & {
+  password?: never;
+  effectivePermissions: string[];
+};
+
+/** Return user for API responses: strip password; include department-scoped effectivePermissions. */
+export function toSafeUser(user: SelectUser): SafeUser {
   const { password: _p, ...rest } = user;
-  return rest as Omit<SelectUser, "password"> & { password?: never };
+  const effectivePermissions = getEffectivePermissionIdsForUser(user);
+  return { ...rest, effectivePermissions };
 }
 
 // RBAC: Super Admin (7), Supervisor (5+), Field Agent (1-4)
@@ -60,13 +67,12 @@ export function requireRole(allowedRoles: string[], minSecurityLevel?: number) {
   };
 }
 
-/** Check if user has a specific feature permission. Admin or '*' always has access. */
+/** Feature permission after role + department scope. Admin bypasses department. */
 export function hasPermission(user: SelectUser | undefined, permissionId: string): boolean {
   if (!user) return false;
   if (user.role === "admin") return true;
-  const perms = user.permissions as string[] | null | undefined;
-  if (!Array.isArray(perms)) return false;
-  return perms.includes("*") || perms.includes(permissionId);
+  const effective = getEffectivePermissionIdsForUser(user);
+  return effective.includes(permissionId);
 }
 
 async function hashPassword(password: string) {
@@ -208,7 +214,10 @@ export function setupAuth(app: Express) {
         jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
         secretOrKey: JWT_SECRET,
       },
-      async (payload: { id: number }, done) => {
+      async (
+        payload: { id: number },
+        done: (error: unknown, user?: SelectUser | false | null, info?: unknown) => void,
+      ) => {
         const user = await storage.getUser(payload.id);
         done(null, user || false);
       }
@@ -252,9 +261,17 @@ export function setupAuth(app: Express) {
       const permissions = Array.isArray(req.body.permissions) && req.body.permissions.length > 0
         ? req.body.permissions
         : await getPermissionsForRole(role);
+      const deptRaw = req.body.department;
+      const deptNorm = typeof deptRaw === "string" ? deptRaw.trim().toLowerCase() : "";
+      if (!isDepartmentId(deptNorm)) {
+        return res.status(400).json({
+          error: "department is required and must be one of: early_warning, election_monitoring, communications, administration",
+        });
+      }
       const newUser = await storage.createUser({
         ...req.body,
-        password: await hashPassword(req.body.password || 'password123'),
+        department: deptNorm,
+        password: await hashPassword(req.body.password || "password123"),
         permissions,
       });
       
@@ -383,10 +400,9 @@ export function setupAuth(app: Express) {
   app.put("/api/user/profile", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const currentUser = req.user as SelectUser;
-    const { password, username, role, securityLevel, ...allowed } = req.body;
+    const { password, username, role, securityLevel, department: _dept, ...allowed } = req.body;
     const updateData: Partial<SelectUser> = {
       fullName: allowed.fullName,
-      department: allowed.department,
       position: allowed.position,
       phoneNumber: allowed.phoneNumber,
       email: allowed.email,

@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import type { Incident, User } from "@shared/schema";
+import { IncidentMediaReview } from "@/components/incidents/IncidentMediaReview";
 import { KINETIC_AGENCIES } from "@/lib/kinetic-agencies";
 
 type IncidentWithWorkflow = Incident & {
@@ -294,6 +295,18 @@ export default function IncidentDetailPage() {
             <CardDescription>{incident.description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <IncidentMediaReview
+              incidentId={incident.id}
+              mediaUrls={incident.mediaUrls}
+              audioRecordingUrl={incident.audioRecordingUrl}
+              audioTranscription={incident.audioTranscription}
+              transcriptionConfidence={incident.transcriptionConfidence}
+              coordinates={incident.coordinates}
+              reportingMethod={incident.reportingMethod}
+              onTranscriptionUpdated={() =>
+                queryClient.invalidateQueries({ queryKey: [`/api/incidents/${incidentId}`] })
+              }
+            />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <MapPin className="h-4 w-4 shrink-0" />

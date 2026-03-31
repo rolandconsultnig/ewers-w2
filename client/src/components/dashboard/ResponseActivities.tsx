@@ -116,7 +116,7 @@ export default function ResponseActivities() {
                        activity.status === 'in_progress' ? 'In progress by' : 'Scheduled for'}
                     </span>
                     <span className="text-xs font-medium text-neutral-800 ml-1">
-                      {activity.assignedTeam}
+                      {activity.assignedTeamId != null ? `Team #${activity.assignedTeamId}` : "Unassigned"}
                     </span>
                     <span className="text-xs text-neutral-500 ml-3">
                       {formatDate(activity.status === 'completed' ? activity.completedAt! : activity.createdAt)}

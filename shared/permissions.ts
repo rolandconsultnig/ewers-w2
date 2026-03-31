@@ -178,7 +178,18 @@ export const ROUTE_TO_PERMISSION: Record<string, string> = {
   "/integrations": "integrations",
   "/reporting": "reporting",
   "/settings": "settings",
+  "/cms": "user_management",
+  "/incidents/:id": "case_management",
 };
+
+/** Resolve a wouter route path to a feature permission id (for department + RBAC gates). */
+export function resolveRoutePermission(path: string): string | undefined {
+  const direct = ROUTE_TO_PERMISSION[path];
+  if (direct) return direct;
+  if (path.startsWith("/incidents/") && path !== "/incidents") return "case_management";
+  if (path.startsWith("/responder/")) return ROUTE_TO_PERMISSION["/responder"];
+  return undefined;
+}
 
 export function getFeaturesByCategory(): Record<string, PlatformFeature[]> {
   const order = [

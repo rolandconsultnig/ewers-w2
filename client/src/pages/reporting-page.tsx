@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Link } from "wouter";
 
 async function downloadReport(format: "csv" | "json", days: number, type: string = "overview") {
   const jwt = localStorage.getItem("jwt");
@@ -366,6 +367,20 @@ export default function ReportingPage() {
         </TabsList>
         
         <TabsContent value="standard" className="space-y-6">
+          <Card className="border-dashed">
+            <CardHeader>
+              <CardTitle>Conflict Category Indicators</CardTitle>
+              <CardDescription>
+                Manage the general conflict indicators used across analysis and reporting from Admin settings.
+              </CardDescription>
+            </CardHeader>
+            <CardFooter>
+              <Link href="/enterprise-settings">
+                <Button variant="outline">Open Enterprise Settings</Button>
+              </Link>
+            </CardFooter>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Standard & Custom Report Builder</CardTitle>

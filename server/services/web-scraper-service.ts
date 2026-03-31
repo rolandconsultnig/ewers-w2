@@ -263,7 +263,7 @@ export class WebScraperService {
     for (const item of content) {
       await this.storage.createCollectedData({
         sourceId: webScraperSource.id,
-        rawData: {
+        content: {
           title: item.title,
           content: item.content,
           url: item.url,
@@ -271,8 +271,8 @@ export class WebScraperService {
           publishedAt: item.publishedAt,
           conflictIndicators: item.conflictIndicators,
         },
-        collectedAt: new Date(),
-        status: "pending",
+        region: "Nigeria",
+        location: item.source,
       });
     }
   }

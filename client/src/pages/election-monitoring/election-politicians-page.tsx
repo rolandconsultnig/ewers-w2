@@ -31,8 +31,8 @@ type Election = { id: number; name: string; type: string };
 export default function ElectionPoliticiansPage() {
   const [open, setOpen] = useState(false);
   const [fullName, setFullName] = useState("");
-  const [partyId, setPartyId] = useState<string>("");
-  const [electionId, setElectionId] = useState<string>("");
+  const [partyId, setPartyId] = useState<string>("none");
+  const [electionId, setElectionId] = useState<string>("none");
   const [position, setPosition] = useState("");
   const [state, setState] = useState("");
   const [bio, setBio] = useState("");
@@ -56,8 +56,8 @@ export default function ElectionPoliticiansPage() {
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/politicians", {
         fullName,
-        partyId: partyId ? parseInt(partyId) : null,
-        electionId: electionId ? parseInt(electionId) : null,
+        partyId: partyId !== "none" ? parseInt(partyId, 10) : null,
+        electionId: electionId !== "none" ? parseInt(electionId, 10) : null,
         position: position || null,
         state: state || null,
         bio: bio || null,
@@ -68,8 +68,8 @@ export default function ElectionPoliticiansPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/politicians"] });
       setOpen(false);
       setFullName("");
-      setPartyId("");
-      setElectionId("");
+      setPartyId("none");
+      setElectionId("none");
       setPosition("");
       setState("");
       setBio("");
@@ -143,7 +143,7 @@ export default function ElectionPoliticiansPage() {
                     <SelectValue placeholder="Select party" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {parties.map((p) => (
                       <SelectItem key={p.id} value={String(p.id)}>{p.name} {p.abbreviation ? `(${p.abbreviation})` : ""}</SelectItem>
                     ))}
@@ -157,7 +157,7 @@ export default function ElectionPoliticiansPage() {
                     <SelectValue placeholder="Select election" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {elections.map((e) => (
                       <SelectItem key={e.id} value={String(e.id)}>{e.name}</SelectItem>
                     ))}

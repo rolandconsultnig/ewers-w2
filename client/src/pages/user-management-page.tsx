@@ -4,6 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { AccessLog, User, insertUserSchema } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getDefaultPermissionsForRole, getFeaturesByCategory, ROLE_LABELS, ROLE_IDS } from "@shared/permissions";
+import { DEPARTMENT_IDS, DEPARTMENT_LABELS, normalizeDepartmentId } from "@shared/department-access";
 import { useToast } from "@/hooks/use-toast";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -113,7 +114,7 @@ const editUserSchema = z.object({
   role: z.string().min(1, "Role is required"),
   securityLevel: z.coerce.number().min(1).max(7),
   permissionsText: z.string().optional(),
-  department: z.string().optional(),
+  department: z.enum(DEPARTMENT_IDS),
   position: z.string().optional(),
   phoneNumber: z.string().optional(),
   email: z.string().email("Invalid email address").optional().or(z.literal("")),
@@ -201,7 +202,7 @@ export default function UserManagementPage() {
       fullName: "",
       role: "user",
       securityLevel: 1,
-      department: "",
+      department: "early_warning",
       position: "",
       phoneNumber: "",
       email: "",
@@ -216,7 +217,7 @@ export default function UserManagementPage() {
       role: "user",
       securityLevel: 1,
       permissionsText: "",
-      department: "",
+      department: "early_warning",
       position: "",
       phoneNumber: "",
       email: "",
@@ -443,6 +444,7 @@ export default function UserManagementPage() {
                   <TableHead>User</TableHead>
                   <TableHead>Username</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Department</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -464,6 +466,11 @@ export default function UserManagementPage() {
                     </TableCell>
                     <TableCell>{user.username}</TableCell>
                     <TableCell>{getRoleBadge(user.role)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="font-normal">
+                        {DEPARTMENT_LABELS[normalizeDepartmentId(user.department)]}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         <Button
@@ -491,7 +498,7 @@ export default function UserManagementPage() {
                               role: user.role,
                               securityLevel: user.securityLevel,
                               permissionsText: Array.isArray((user as any).permissions) ? (user as any).permissions.join(", ") : "",
-                              department: user.department || "",
+                              department: normalizeDepartmentId(user.department),
                               position: user.position || "",
                               phoneNumber: user.phoneNumber || "",
                               email: user.email || "",
@@ -913,9 +920,21 @@ export default function UserManagementPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Department</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter department" {...field} value={field.value || ''} />
-                    </FormControl>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select department" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {DEPARTMENT_IDS.map((id) => (
+                          <SelectItem key={id} value={id}>
+                            {DEPARTMENT_LABELS[id]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>Users only access modules allowed for this department.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1093,9 +1112,21 @@ export default function UserManagementPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Department</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter department" {...field} value={field.value || ""} />
-                      </FormControl>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select department" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {DEPARTMENT_IDS.map((id) => (
+                            <SelectItem key={id} value={id}>
+                              {DEPARTMENT_LABELS[id]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>Users only access modules allowed for this department.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -1304,7 +1335,7 @@ export default function UserManagementPage() {
                       onClick={() => {
                         if (selectedPermissionIds.includes("*")) return;
                         const ids = features.map((f) => f.id);
-                        setSelectedPermissionIds((prev) => [...new Set([...prev, ...ids])]);
+                        setSelectedPermissionIds((prev) => Array.from(new Set([...prev, ...ids])));
                       }}
                     >
                       All
@@ -1444,7 +1475,7 @@ export default function UserManagementPage() {
                           onClick={() => {
                             if (roleTemplatePermissionIds.includes("*")) return;
                             const ids = features.map((f) => f.id);
-                            setRoleTemplatePermissionIds((prev) => [...new Set([...prev, ...ids])]);
+                            setRoleTemplatePermissionIds((prev) => Array.from(new Set([...prev, ...ids])));
                           }}
                         >
                           All

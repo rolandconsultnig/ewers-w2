@@ -24,6 +24,8 @@ const cmsContentSchema = z.object({
 type CmsContentValues = z.infer<typeof cmsContentSchema>;
 
 const cmsSections = [
+  { key: "home_hero_title", label: "Homepage Hero Title", description: "Main headline text shown on the public homepage hero section" },
+  { key: "home_hero_subtitle", label: "Homepage Hero Subtitle", description: "Supporting text shown below the homepage hero title" },
   { key: "about_ipcr", label: "About IPCR", description: "Information about the Institute for Peace and Conflict Resolution" },
   { key: "about_director", label: "About the Director General", description: "Information about the Director General" },
   { key: "peace_initiatives", label: "Peace Initiatives", description: "Peace initiatives and programs" },

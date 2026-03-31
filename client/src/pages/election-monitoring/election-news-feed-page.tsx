@@ -47,7 +47,7 @@ export default function ElectionNewsFeedPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [electionId, setElectionId] = useState<string>("");
-  const [partyId, setPartyId] = useState<string>("");
+  const [partyId, setPartyId] = useState<string>("none");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -76,7 +76,7 @@ export default function ElectionNewsFeedPage() {
         description: description || null,
         type: "other",
         severity: "low",
-        partyId: partyId || null,
+        partyId: partyId !== "none" ? Number(partyId) : null,
       });
       return res.json();
     },
@@ -86,7 +86,7 @@ export default function ElectionNewsFeedPage() {
       setTitle("");
       setDescription("");
       setElectionId("");
-      setPartyId("");
+      setPartyId("none");
       toast({ title: "News shared" });
     },
     onError: (e: Error) => toast({ title: "Failed to share", description: e.message, variant: "destructive" }),
@@ -247,7 +247,7 @@ export default function ElectionNewsFeedPage() {
                   <SelectValue placeholder="Select party" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {parties.map((p) => (
                     <SelectItem key={p.id} value={String(p.id)}>{p.name} {p.abbreviation ? `(${p.abbreviation})` : ""}</SelectItem>
                   ))}

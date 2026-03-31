@@ -58,8 +58,8 @@ async function seedAdmin() {
 
     const hashedPassword = await hashPassword(password);
     await client.query(
-      `INSERT INTO users (username, password, full_name, role, security_level, permissions, active)
-       VALUES ($1, $2, $3, 'admin', 7, $4, true)`,
+      `INSERT INTO users (username, password, full_name, role, security_level, permissions, active, department)
+       VALUES ($1, $2, $3, 'admin', 7, $4, true, 'administration')`,
       [username, hashedPassword, fullName, JSON.stringify(["view", "create", "update", "delete", "manage"])]
     );
 

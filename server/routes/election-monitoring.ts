@@ -7,6 +7,11 @@ import type { User as SelectUser } from "@shared/schema";
 import { runPoliticalNewsIngest } from "../services/political-news-ingest-service";
 
 export function setupElectionMonitoringRoutes(app: Router) {
+  const getErrorMessage = (error: unknown) => {
+    if (error instanceof Error) return error.message;
+    return "Unknown error";
+  };
+
   const requireAuth = (req: any, res: any, next: any) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     next();
@@ -51,7 +56,7 @@ export function setupElectionMonitoringRoutes(app: Router) {
       res.status(201).json(election);
     } catch (e) {
       console.error("Error creating election:", e);
-      res.status(500).json({ error: "Failed to create election" });
+      res.status(500).json({ error: "Failed to create election", details: getErrorMessage(e) });
     }
   });
 
@@ -91,7 +96,7 @@ export function setupElectionMonitoringRoutes(app: Router) {
       const party = await storage.createPoliticalParty({ name, abbreviation: abbreviation || null, logoUrl: logoUrl || null, description: description || null });
       res.status(201).json(party);
     } catch (e) {
-      res.status(500).json({ error: "Failed to create party" });
+      res.status(500).json({ error: "Failed to create party", details: getErrorMessage(e) });
     }
   });
 
@@ -145,7 +150,7 @@ export function setupElectionMonitoringRoutes(app: Router) {
       });
       res.status(201).json(p);
     } catch (e) {
-      res.status(500).json({ error: "Failed to create politician" });
+      res.status(500).json({ error: "Failed to create politician", details: getErrorMessage(e) });
     }
   });
 
@@ -203,7 +208,7 @@ export function setupElectionMonitoringRoutes(app: Router) {
       const a = await storage.createElectionActor({ electionId, name, type, role: role || null, description: description || null });
       res.status(201).json(a);
     } catch (e) {
-      res.status(500).json({ error: "Failed to create actor" });
+      res.status(500).json({ error: "Failed to create actor", details: getErrorMessage(e) });
     }
   });
 
@@ -245,7 +250,7 @@ export function setupElectionMonitoringRoutes(app: Router) {
       res.status(201).json(e);
     } catch (err) {
       console.error("Error creating election event:", err);
-      res.status(500).json({ error: "Failed to create event" });
+      res.status(500).json({ error: "Failed to create event", details: getErrorMessage(err) });
     }
   });
 }

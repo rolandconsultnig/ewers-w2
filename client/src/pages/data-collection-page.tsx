@@ -16,7 +16,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { FileText, Upload, Database, Radio, Users, RefreshCw, Shield, AlertTriangle, MessageCircle, UserCheck, BadgeCheck, BarChart3, MapIcon, Table, Plus, Pencil, Loader2 } from "lucide-react";
+import { FileText, Upload, Database, Radio, Users, RefreshCw, Shield, AlertTriangle, MessageCircle, UserCheck, BadgeCheck, BarChart3, MapIcon, Table, Plus, Pencil, Loader2, ImagePlus, Crosshair } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -35,7 +35,21 @@ const incidentSchema = z.object({
   }),
   actorType: z.enum(["state", "non-state", "none"]).optional(),
   actorName: z.string().optional(),
-});
+  latitude: z.string().optional(),
+  longitude: z.string().optional(),
+})
+  .refine(
+    (d) => {
+      const l = (d.latitude ?? "").trim();
+      const g = (d.longitude ?? "").trim();
+      if (!l && !g) return true;
+      if (!l || !g) return false;
+      const la = Number(l);
+      const ln = Number(g);
+      return Number.isFinite(la) && Number.isFinite(ln) && la >= -90 && la <= 90 && ln >= -180 && ln <= 180;
+    },
+    { message: "Enter valid latitude and longitude, or leave both empty", path: ["longitude"] },
+  );
 
 type IncidentFormValues = z.infer<typeof incidentSchema>;
 
@@ -81,6 +95,7 @@ export default function DataCollectionPage() {
   const [refetchLoading, setRefetchLoading] = useState(false);
   const [recentImports, setRecentImports] = useState<{ filename: string; imported: number; errors: number }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [reportMediaFiles, setReportMediaFiles] = useState<File[]>([]);
   
   // Data source form
   const sourceForm = useForm<DataSourceFormValues>({
@@ -206,6 +221,8 @@ export default function DataCollectionPage() {
       severity: undefined,
       actorType: "none",
       actorName: "",
+      latitude: "",
+      longitude: "",
     },
   });
 
@@ -234,7 +251,25 @@ export default function DataCollectionPage() {
   });
 
   const reportIncidentMutation = useMutation({
-    mutationFn: async (data: IncidentFormValues) => {
+    mutationFn: async (payload: { data: IncidentFormValues; files: File[] }) => {
+      const { data, files } = payload;
+      const latStr = (data.latitude ?? "").trim();
+      const lngStr = (data.longitude ?? "").trim();
+      const latN = latStr ? Number(latStr) : NaN;
+      const lngN = lngStr ? Number(lngStr) : NaN;
+      const hasGeo = Number.isFinite(latN) && Number.isFinite(lngN);
+
+      let coordinates: Record<string, unknown> | undefined;
+      if (hasGeo) {
+        coordinates = { lat: latN, lng: lngN, address: data.location };
+      }
+      if (data.actorType && data.actorType !== "none") {
+        coordinates = {
+          ...(coordinates ?? { address: data.location }),
+          actors: { type: data.actorType, name: (data.actorName || "").trim() },
+        };
+      }
+
       const incidentData = {
         title: data.title,
         description: data.description,
@@ -250,19 +285,31 @@ export default function DataCollectionPage() {
         category: "conflict",
         verificationStatus: "unverified",
         reportingMethod: "web_form",
-        coordinates:
-          data.actorType && data.actorType !== "none"
-            ? {
-                lat: 0,
-                lng: 0,
-                address: data.location,
-                actors: { type: data.actorType, name: (data.actorName || "").trim() },
-              }
-            : undefined,
+        coordinates,
       };
-      
+
       const res = await apiRequest("POST", "/api/incidents", incidentData);
-      return await res.json();
+      const created = await res.json();
+
+      if (files.length > 0 && created?.id) {
+        const fd = new FormData();
+        files.forEach((f) => fd.append("files", f));
+        const jwt = typeof window !== "undefined" ? localStorage.getItem("jwt") : null;
+        const headers: HeadersInit = {};
+        if (jwt) headers.Authorization = `Bearer ${jwt}`;
+        const att = await fetch(`/api/incidents/${created.id}/attachments`, {
+          method: "POST",
+          body: fd,
+          credentials: "include",
+          headers,
+        });
+        if (!att.ok) {
+          const err = await att.json().catch(() => ({}));
+          throw new Error(typeof err?.error === "string" ? err.error : "Incident saved but media upload failed");
+        }
+      }
+
+      return created;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
@@ -270,7 +317,22 @@ export default function DataCollectionPage() {
         title: "Incident Reported",
         description: "Your incident report has been submitted successfully.",
       });
-      form.reset();
+      setReportMediaFiles([]);
+      form.reset({
+        title: "",
+        description: "",
+        location: "",
+        town: "",
+        incidentOccurredAt: "",
+        region: "North Central",
+        state: "",
+        lga: "",
+        severity: undefined,
+        actorType: "none",
+        actorName: "",
+        latitude: "",
+        longitude: "",
+      });
     },
     onError: (error: Error) => {
       toast({
@@ -282,7 +344,7 @@ export default function DataCollectionPage() {
   });
 
   function onSubmit(data: IncidentFormValues) {
-    reportIncidentMutation.mutate(data);
+    reportIncidentMutation.mutate({ data, files: reportMediaFiles });
   }
 
   const fileImportMutation = useMutation({
@@ -1006,6 +1068,85 @@ export default function DataCollectionPage() {
                           </FormItem>
                         )}
                       />
+
+                      <div className="rounded-lg border border-dashed border-sky-200 bg-sky-50/50 p-4 space-y-3">
+                        <div className="text-sm font-medium text-sky-900 flex items-center gap-2">
+                          <MapIcon className="h-4 w-4" />
+                          Optional: latitude &amp; longitude
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <FormField
+                            control={form.control}
+                            name="latitude"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Latitude</FormLabel>
+                                <FormControl>
+                                  <Input inputMode="decimal" placeholder="e.g. 9.0765" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="longitude"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Longitude</FormLabel>
+                                <FormControl>
+                                  <Input inputMode="decimal" placeholder="e.g. 7.3986" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
+                          onClick={() => {
+                            if (!navigator.geolocation) {
+                              toast({ title: "Not supported", description: "Location is not available in this browser.", variant: "destructive" });
+                              return;
+                            }
+                            navigator.geolocation.getCurrentPosition(
+                              (pos) => {
+                                form.setValue("latitude", String(pos.coords.latitude), { shouldValidate: true });
+                                form.setValue("longitude", String(pos.coords.longitude), { shouldValidate: true });
+                                toast({ title: "Location captured" });
+                              },
+                              () => toast({ title: "Location denied", variant: "destructive" }),
+                            );
+                          }}
+                        >
+                          <Crosshair className="h-4 w-4" />
+                          Use current location
+                        </Button>
+                      </div>
+
+                      <div className="rounded-lg border border-dashed border-muted p-4 space-y-2">
+                        <div className="text-sm font-medium flex items-center gap-2">
+                          <ImagePlus className="h-4 w-4" />
+                          Optional: photos or video
+                        </div>
+                        <p className="text-xs text-muted-foreground">Uploaded after the incident is created (same as attachments).</p>
+                        <Input
+                          type="file"
+                          accept="image/*,video/*"
+                          multiple
+                          className="cursor-pointer"
+                          onChange={(e) => {
+                            const list = e.target.files ? Array.from(e.target.files) : [];
+                            setReportMediaFiles(list.slice(0, 10));
+                          }}
+                        />
+                        {reportMediaFiles.length > 0 && (
+                          <p className="text-xs text-muted-foreground">{reportMediaFiles.length} file(s) selected</p>
+                        )}
+                      </div>
 
                       <div className="rounded-lg border border-blue-200 bg-blue-50/80 p-4 text-sm text-blue-950">
                         <p className="font-medium flex items-center gap-2">

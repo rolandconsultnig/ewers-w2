@@ -223,7 +223,7 @@ export default function CallsPage() {
     }
 
     const known = new Set(knownActiveCallIds);
-    const newlyDiscovered = ids.filter((id) => !known.has(id));
+    const newlyDiscovered = ids.filter((id: number) => !known.has(id));
     if (newlyDiscovered.length === 0) return;
 
     // Update known set first to avoid repeated triggers.

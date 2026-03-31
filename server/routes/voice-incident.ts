@@ -8,6 +8,11 @@ import { insertIncidentSchema, User as SelectUser } from '@shared/schema';
 
 const router = Router();
 
+function audioFileAbsolute(storedUrl: string): string {
+  const rel = storedUrl.replace(/^\/+/, "");
+  return path.join(process.cwd(), rel);
+}
+
 // Configure multer for audio file uploads
 const uploadDir = path.join(process.cwd(), 'uploads', 'audio');
 if (!fs.existsSync(uploadDir)) {
@@ -190,7 +195,7 @@ router.get('/:id/audio', async (req, res) => {
     }
 
     // Construct full file path
-    const audioPath = path.join(process.cwd(), incident.audioRecordingUrl);
+    const audioPath = audioFileAbsolute(incident.audioRecordingUrl);
 
     if (!fs.existsSync(audioPath)) {
       return res.status(404).json({ error: 'Audio file not found' });
@@ -225,7 +230,7 @@ router.post('/:id/retranscribe', async (req, res) => {
       return res.status(400).json({ error: 'No audio recording for this incident' });
     }
 
-    const audioPath = path.join(process.cwd(), incident.audioRecordingUrl);
+    const audioPath = audioFileAbsolute(incident.audioRecordingUrl);
 
     if (!fs.existsSync(audioPath)) {
       return res.status(404).json({ error: 'Audio file not found' });

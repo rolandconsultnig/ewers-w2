@@ -206,7 +206,7 @@ export class PatternDetectionService {
         description: `${clusters.length} days with significantly elevated incident rates detected, suggesting coordinated or cascading conflicts.`,
         confidence: Math.min(90, 50 + (clusters.length * 8)),
         severity: clusters.some(c => c.severity > 3) ? 'high' : 'medium',
-        regions: [...new Set(incidents.map(inc => inc.region))],
+        regions: Array.from(new Set(incidents.map((inc) => inc.region))),
         timeframe: { start: startDate, end: endDate },
         indicators: [
           'Spike in daily incident rates',
@@ -262,7 +262,7 @@ export class PatternDetectionService {
         description: `Coordinated conflict patterns suggesting organized actor involvement: ${suspiciousPatterns.join(', ')}.`,
         confidence: Math.min(85, 40 + (suspiciousPatterns.length * 15)),
         severity: suspiciousPatterns.length >= 3 ? 'high' : 'medium',
-        regions: [...new Set(incidents.map(inc => inc.region))],
+        regions: Array.from(new Set(incidents.map((inc) => inc.region))),
         timeframe: { start: startDate, end: endDate },
         indicators: [
           'Similar modus operandi across regions',
@@ -373,7 +373,7 @@ export class PatternDetectionService {
         description: `${(escalationRate * 100).toFixed(1)}% of incidents show escalating severity trends, indicating deteriorating security conditions.`,
         confidence: Math.min(95, 40 + (escalationRate * 100)),
         severity: escalationRate > 0.6 ? 'critical' : escalationRate > 0.4 ? 'high' : 'medium',
-        regions: [...new Set(incidents.map(inc => inc.region))],
+        regions: Array.from(new Set(incidents.map(inc => inc.region))),
         timeframe: { start: startDate, end: endDate },
         indicators: [
           'Increasing incident severity',

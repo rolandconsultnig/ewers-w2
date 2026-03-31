@@ -90,14 +90,14 @@ app.use((req, res, next) => {
   });
 
   // In development: use Vite middleware only when NOT using separate Vite dev server
-  // (USE_VITE_DEV_SERVER=1 means Vite runs on port 5173, API on 4342)
+  // (USE_VITE_DEV_SERVER=1 means Vite runs on port 4342, API on PORT=5151)
   if (app.get("env") === "development" && !process.env.USE_VITE_DEV_SERVER) {
     await setupVite(app, server);
   } else if (app.get("env") !== "development") {
     serveStatic(app);
   } else if (process.env.USE_VITE_DEV_SERVER) {
     app.get("*", (req, res) => {
-      const target = `http://localhost:5173${req.originalUrl || req.path}`;
+      const target = `http://localhost:4342${req.originalUrl || req.path}`;
       res.redirect(301, target);
     });
   }

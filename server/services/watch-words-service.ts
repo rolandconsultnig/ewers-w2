@@ -44,7 +44,9 @@ export async function getWatchWords(): Promise<string[]> {
  * @param updatedBy - User ID performing the update
  */
 export async function setWatchWords(words: string[], updatedBy: number): Promise<string[]> {
-  const normalized = [...new Set(words.map((w) => w.trim().toLowerCase()).filter(Boolean))];
+  const normalized = Array.from(
+    new Set(words.map((w) => w.trim().toLowerCase()).filter(Boolean))
+  );
 
   const [existing] = await db
     .select()

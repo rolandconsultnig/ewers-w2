@@ -75,8 +75,36 @@ function ResponderIncidentMap() {
     const byId = new Map<number, Incident>();
     const add = (list: AssignmentItem[] | undefined) => {
       list?.forEach((a) => {
-        const inc = a.incident as Incident & { coordinates?: unknown };
-        if (inc?.id) byId.set(inc.id, inc);
+        const raw = a.incident;
+        const inc = {
+          ...raw,
+          region: raw.region ?? "Nigeria",
+          sourceId: null,
+          coordinates: null,
+          mediaUrls: null,
+          category: "general",
+          state: null,
+          lga: null,
+          town: null,
+          incidentOccurredAt: null,
+          reportedBy: 0,
+          relatedIndicators: null,
+          impactedPopulation: null,
+          verificationStatus: "unverified",
+          isPinned: false,
+          audioRecordingUrl: null,
+          audioTranscription: null,
+          reportingMethod: "web_form",
+          transcriptionConfidence: null,
+          processingStatus: null,
+          proposedResponderType: null,
+          finalResponderType: null,
+          assignedResponderTeamId: null,
+          supervisorId: null,
+          coordinatorId: null,
+          routedAt: null,
+        };
+        if (inc?.id) byId.set(inc.id, inc as unknown as Incident);
       });
     };
     add(kineticAssignments);

@@ -20,7 +20,24 @@ import { useToast } from "@/hooks/use-toast";
 import { severityBadgeClass } from "@/lib/severity-colors";
 import { apiRequest } from "@/lib/queryClient";
 import { CheckCircle2, XCircle, AlertTriangle, MapPin, Calendar, User, ExternalLink } from "lucide-react";
-import type { Incident } from "@shared/schema";
+import { IncidentMediaReview } from "@/components/incidents/IncidentMediaReview";
+
+type ReviewIncident = {
+  id: number;
+  title: string;
+  description: string;
+  location: string;
+  region: string;
+  severity: string;
+  category: string;
+  reportedAt: string;
+  mediaUrls?: string[] | null;
+  audioRecordingUrl?: string | null;
+  audioTranscription?: string | null;
+  transcriptionConfidence?: number | null;
+  coordinates?: unknown;
+  reportingMethod?: string | null;
+};
 import {
   Dialog,
   DialogContent,
@@ -42,7 +59,7 @@ export default function IncidentReviewPage() {
   const [filterReportingMethod, setFilterReportingMethod] = useState<string>("all");
 
   // Fetch pending incidents
-  const { data: pendingIncidents = [], isLoading } = useQuery<Incident[]>({
+  const { data: pendingIncidents = [], isLoading } = useQuery<ReviewIncident[]>({
     queryKey: ["/api/incidents/pending-review", filterState, filterLga, filterReportingMethod],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -313,6 +330,20 @@ export default function IncidentReviewPage() {
                             {incident.severity}
                           </Badge>
                         </div>
+
+                        <IncidentMediaReview
+                          compact
+                          incidentId={incident.id}
+                          mediaUrls={incident.mediaUrls}
+                          audioRecordingUrl={incident.audioRecordingUrl}
+                          audioTranscription={incident.audioTranscription}
+                          transcriptionConfidence={incident.transcriptionConfidence}
+                          coordinates={incident.coordinates}
+                          reportingMethod={incident.reportingMethod}
+                          onTranscriptionUpdated={() =>
+                            queryClient.invalidateQueries({ queryKey: ["/api/incidents/pending-review"] })
+                          }
+                        />
                         
                         <div className="flex flex-wrap gap-4 text-sm text-neutral-500">
                           <div className="flex items-center gap-1">

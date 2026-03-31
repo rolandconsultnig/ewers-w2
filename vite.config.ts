@@ -12,13 +12,13 @@ export default defineConfig({
   root: clientRoot,
   base: "/",
   server: {
-    port: 5173,
+    port: 4342,
     strictPort: true,
-    // Must match API port: npm run dev uses PORT=4343 for the API
+    // npm run dev: Vite (frontend) on 4342, API on PORT=5151
     proxy: {
-      "/api": { target: "http://localhost:4343", changeOrigin: true },
-      "/socket.io": { target: "http://localhost:4343", ws: true },
-      "/uploads": { target: "http://localhost:4343", changeOrigin: true },
+      "/api": { target: "http://localhost:5151", changeOrigin: true },
+      "/socket.io": { target: "http://localhost:5151", ws: true },
+      "/uploads": { target: "http://localhost:5151", changeOrigin: true },
     },
     fs: {
       strict: false,

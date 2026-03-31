@@ -1,6 +1,7 @@
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { DEPARTMENT_IDS } from "./department-access";
 
 // Users
 export const users = pgTable("users", {
@@ -21,21 +22,30 @@ export const users = pgTable("users", {
   avatar: text("avatar"),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
-  fullName: true,
-  role: true,
-  securityLevel: true,
-  permissions: true,
-  department: true,
-  position: true,
-  phoneNumber: true,
-  email: true,
-  responderAgency: true,
-  active: true,
-  avatar: true,
-});
+const departmentEnumZ = z.enum(DEPARTMENT_IDS as unknown as [string, ...string[]]);
+
+export const insertUserSchema = createInsertSchema(users)
+  .pick({
+    username: true,
+    password: true,
+    fullName: true,
+    role: true,
+    securityLevel: true,
+    permissions: true,
+    department: true,
+    position: true,
+    phoneNumber: true,
+    email: true,
+    responderAgency: true,
+    active: true,
+    avatar: true,
+  })
+  .extend({
+    department: departmentEnumZ,
+  });
+
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type User = typeof users.$inferSelect;
 
 // 1. Data Collection Module - Data Sources
 export const dataSources = pgTable("data_sources", {
@@ -67,6 +77,9 @@ export const insertDataSourceSchema = createInsertSchema(dataSources).pick({
   metaData: true,
 });
 
+export type InsertDataSource = z.infer<typeof insertDataSourceSchema>;
+export type DataSource = typeof dataSources.$inferSelect;
+
 // Collected Data
 export const collectedData = pgTable("collected_data", {
   id: serial("id").notNull().primaryKey(),
@@ -95,6 +108,9 @@ export const insertCollectedDataSchema = createInsertSchema(collectedData).pick(
   mediaUrls: true,
 });
 
+export type InsertCollectedData = z.infer<typeof insertCollectedDataSchema>;
+export type CollectedData = typeof collectedData.$inferSelect;
+
 // 2. Data Processing Module - Processed Data
 export const processedData = pgTable("processed_data", {
   id: serial("id").notNull().primaryKey(),
@@ -121,6 +137,9 @@ export const insertProcessedDataSchema = createInsertSchema(processedData).pick(
   normalizedLocation: true,
   region: true,
 });
+
+export type InsertProcessedData = z.infer<typeof insertProcessedDataSchema>;
+export type ProcessedData = typeof processedData.$inferSelect;
 
 // 3. Risk Detection Module - Risk Indicators
 export const riskIndicators = pgTable("risk_indicators", {
@@ -156,6 +175,9 @@ export const insertRiskIndicatorSchema = createInsertSchema(riskIndicators).pick
   confidence: true,
   metaData: true,
 });
+
+export type InsertRiskIndicator = z.infer<typeof insertRiskIndicatorSchema>;
+export type RiskIndicator = typeof riskIndicators.$inferSelect;
 
 // Incidents (detected events)
 export const incidents = pgTable("incidents", {
@@ -220,6 +242,108 @@ export const insertIncidentSchema = createInsertSchema(incidents).pick({
   reportingMethod: true,
   transcriptionConfidence: true,
 });
+
+export type InsertIncident = z.infer<typeof insertIncidentSchema>;
+export type Incident = typeof incidents.$inferSelect;
+
+export const alerts = pgTable("alerts", {
+  id: serial("id").notNull().primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  severity: text("severity").notNull(),
+  status: text("status").notNull().default("active"),
+  source: text("source").notNull().default("system"),
+  category: text("category"),
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  escalationLevel: integer("escalation_level").default(1),
+  region: text("region").notNull().default("Nigeria"),
+  location: text("location").notNull().default("Unknown"),
+  incidentId: integer("incident_id"),
+  channels: text("channels").array(),
+  recipients: jsonb("recipients"),
+});
+
+export const insertAlertSchema = createInsertSchema(alerts).pick({
+  title: true,
+  description: true,
+  severity: true,
+  status: true,
+  source: true,
+  category: true,
+  acknowledgedAt: true,
+  escalationLevel: true,
+  region: true,
+  location: true,
+  incidentId: true,
+  channels: true,
+  recipients: true,
+});
+
+export type InsertAlert = z.infer<typeof insertAlertSchema>;
+export type Alert = typeof alerts.$inferSelect;
+
+export const responseTeams = pgTable("response_teams", {
+  id: serial("id").notNull().primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  status: text("status").notNull().default("active"),
+  members: jsonb("members"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  region: text("region").notNull().default("Nigeria"),
+  location: text("location").notNull(),
+  capacity: integer("capacity"),
+  leader: integer("leader"),
+  expertiseAreas: text("expertise_areas").array(),
+  responseCategory: text("response_category"),
+});
+
+export const insertResponseTeamSchema = createInsertSchema(responseTeams).pick({
+  name: true,
+  type: true,
+  status: true,
+  members: true,
+  region: true,
+  location: true,
+  capacity: true,
+  leader: true,
+  expertiseAreas: true,
+  responseCategory: true,
+});
+
+export type InsertResponseTeam = z.infer<typeof insertResponseTeamSchema>;
+export type ResponseTeam = typeof responseTeams.$inferSelect;
+
+export const responseActivities = pgTable("response_activities", {
+  id: serial("id").notNull().primaryKey(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  status: text("status").notNull().default("pending"),
+  assignedTo: integer("assigned_to"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  alertId: integer("alert_id"),
+  incidentId: integer("incident_id"),
+  assignedTeamId: integer("assigned_team_id").references(() => responseTeams.id),
+  responseType: text("response_type"),
+});
+
+export const insertResponseActivitySchema = createInsertSchema(responseActivities).pick({
+  title: true,
+  description: true,
+  status: true,
+  assignedTo: true,
+  startedAt: true,
+  completedAt: true,
+  alertId: true,
+  incidentId: true,
+  assignedTeamId: true,
+  responseType: true,
+});
+
+export type InsertResponseActivity = z.infer<typeof insertResponseActivitySchema>;
+export type ResponseActivity = typeof responseActivities.$inferSelect;
 
 // Incident discussion thread (analyst, supervisor, coordinator, responder comments)
 export const escalationPredictions = pgTable("escalation_predictions", {
@@ -643,14 +767,8 @@ export const workflowHistory = pgTable("workflow_history", {
 export type WorkflowHistory = typeof workflowHistory.$inferSelect;
 
 export {
-  alerts,
-  insertAlertSchema,
   responsePlans,
   insertResponsePlanSchema,
-  responseTeams,
-  insertResponseTeamSchema,
-  responseActivities,
-  insertResponseActivitySchema,
   riskAnalyses,
   insertRiskAnalysisSchema,
   accessLogs,
@@ -687,17 +805,21 @@ export {
   insertIncidentAnomalySchema,
   dataQualityIssues,
   insertDataQualityIssueSchema,
+  elections,
+  insertElectionSchema,
+  politicalParties,
+  insertPoliticalPartySchema,
+  politicians,
+  insertPoliticianSchema,
+  electionActors,
+  insertElectionActorSchema,
+  electionEvents,
+  insertElectionEventSchema,
 } from "./schema-SamSPC";
 
 export type {
-  Alert,
-  InsertAlert,
   ResponsePlan,
   InsertResponsePlan,
-  ResponseTeam,
-  InsertResponseTeam,
-  ResponseActivity,
-  InsertResponseActivity,
   RiskAnalysis,
   InsertRiskAnalysis,
   AccessLog,
@@ -734,4 +856,14 @@ export type {
   InsertIncidentAnomaly,
   DataQualityIssue,
   InsertDataQualityIssue,
+  Election,
+  InsertElection,
+  PoliticalParty,
+  InsertPoliticalParty,
+  Politician,
+  InsertPolitician,
+  ElectionActor,
+  InsertElectionActor,
+  ElectionEvent,
+  InsertElectionEvent,
 } from "./schema-SamSPC";

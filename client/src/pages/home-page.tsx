@@ -46,6 +46,8 @@ export default function HomePage() {
   const aboutIpcr = cmsBySection.get("about_ipcr");
   const aboutDg = cmsBySection.get("about_director");
   const peaceInitiatives = cmsBySection.get("peace_initiatives");
+  const heroTitle = cmsBySection.get("home_hero_title");
+  const heroSubtitle = cmsBySection.get("home_hero_subtitle");
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-white">
@@ -113,10 +115,10 @@ export default function HomePage() {
                 Early Warning • Early Response
               </div>
               <h1 className="mt-4 text-4xl md:text-6xl font-semibold tracking-tight">
-                {t("home.hero.title")}
+                {heroTitle?.isActive && heroTitle?.content ? heroTitle.content : t("home.hero.title")}
               </h1>
               <p className="mt-5 text-base md:text-xl text-white/90 max-w-2xl">
-                {t("home.hero.subtitle")}
+                {heroSubtitle?.isActive && heroSubtitle?.content ? heroSubtitle.content : t("home.hero.subtitle")}
               </p>
 
               <div className="mt-8 flex flex-col sm:flex-row gap-3">

@@ -116,8 +116,8 @@ export async function runLiveCrisisIngest(): Promise<IngestResult> {
         region: "Nigeria",
         severity: "medium",
         status: "active",
+        category: "conflict",
         reportedBy: 1,
-        sourceId: undefined,
       });
       incidentsCreated++;
     }

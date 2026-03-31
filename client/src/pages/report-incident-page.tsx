@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, FileText, MapPin, AlertTriangle, User, Mic, MicOff } from "lucide-react";
+import { ArrowLeft, FileText, MapPin, AlertTriangle, User, Mic, MicOff, ImagePlus, Crosshair } from "lucide-react";
 
 // Import the IPCR logo
 import ipcr_logo from "@assets/Institute-For-Peace-And-Conflict-Resolution.jpg";
@@ -46,7 +46,21 @@ const publicIncidentSchema = z.object({
   contactName: z.string().optional(),
   contactEmail: z.string().email("Please provide a valid email").optional().or(z.literal("")),
   contactPhone: z.string().optional(),
-});
+  latitude: z.string().optional(),
+  longitude: z.string().optional(),
+})
+  .refine(
+    (d) => {
+      const l = (d.latitude ?? "").trim();
+      const g = (d.longitude ?? "").trim();
+      if (!l && !g) return true;
+      if (!l || !g) return false;
+      const la = Number(l);
+      const ln = Number(g);
+      return Number.isFinite(la) && Number.isFinite(ln) && la >= -90 && la <= 90 && ln >= -180 && ln <= 180;
+    },
+    { message: "Enter valid latitude and longitude, or leave both empty", path: ["longitude"] },
+  );
 
 type PublicIncidentFormValues = z.infer<typeof publicIncidentSchema>;
 
@@ -73,20 +87,29 @@ export default function ReportIncidentPage() {
       contactName: "",
       contactEmail: "",
       contactPhone: "",
+      latitude: "",
+      longitude: "",
     },
   });
 
+  const [mediaFiles, setMediaFiles] = React.useState<File[]>([]);
+
   // Mutation for submitting the incident (no login or personal details required)
   const reportIncidentMutation = useMutation({
-    mutationFn: async (data: PublicIncidentFormValues) => {
+    mutationFn: async (payload: { data: PublicIncidentFormValues; files: File[] }) => {
+      const { data, files } = payload;
       const actorType = data.actorType && data.actorType !== "skip" ? data.actorType : undefined;
       const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
       const qlat = params.get("lat");
       const qlng = params.get("lng");
-      const latn = qlat != null ? Number(qlat) : NaN;
-      const lngn = qlng != null ? Number(qlng) : NaN;
+      const latFromQuery = qlat != null ? Number(qlat) : NaN;
+      const lngFromQuery = qlng != null ? Number(qlng) : NaN;
+      const latFromForm = (data.latitude ?? "").trim() ? Number(data.latitude) : NaN;
+      const lngFromForm = (data.longitude ?? "").trim() ? Number(data.longitude) : NaN;
+      const latn = Number.isFinite(latFromForm) ? latFromForm : latFromQuery;
+      const lngn = Number.isFinite(lngFromForm) ? lngFromForm : lngFromQuery;
 
-      const incidentData = {
+      const baseFields = {
         title: data.title,
         description: data.description,
         location: data.location,
@@ -101,13 +124,38 @@ export default function ReportIncidentPage() {
         contactName: (data.contactName || "").trim(),
         contactEmail: (data.contactEmail && data.contactEmail.trim()) || "",
         contactPhone: (data.contactPhone || "").trim(),
-        ...(Number.isFinite(latn) && Number.isFinite(lngn) ? { lat: latn, lng: lngn } : {}),
+        ...(Number.isFinite(latn) && Number.isFinite(lngn) ? { latitude: latn, longitude: lngn } : {}),
       };
+
+      if (files.length > 0) {
+        const fd = new FormData();
+        Object.entries(baseFields).forEach(([k, v]) => {
+          if (v === undefined || v === null) return;
+          fd.append(k, String(v));
+        });
+        files.forEach((f) => fd.append("media", f));
+        const res = await fetch("/api/public/incidents", {
+          method: "POST",
+          body: fd,
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(
+            typeof err?.error === "string" ? err.error : Array.isArray(err?.error) ? "Validation failed" : res.statusText || "Failed to submit",
+          );
+        }
+        return await res.json();
+      }
+
       const res = await fetch("/api/public/incidents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(incidentData),
+        body: JSON.stringify({
+          ...baseFields,
+          ...(Number.isFinite(latn) && Number.isFinite(lngn) ? { lat: latn, lng: lngn } : {}),
+        }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -120,7 +168,25 @@ export default function ReportIncidentPage() {
         title: "Incident Reported",
         description: "Thank you for your report. Officials will review it shortly.",
       });
-      form.reset();
+      form.reset({
+        title: "",
+        description: "",
+        location: "",
+        town: "",
+        incidentOccurredAt: "",
+        region: "North Central",
+        state: "",
+        lga: "",
+        category: "conflict",
+        actorType: undefined,
+        actorName: "",
+        contactName: "",
+        contactEmail: "",
+        contactPhone: "",
+        latitude: "",
+        longitude: "",
+      });
+      setMediaFiles([]);
       queryClient.invalidateQueries({ queryKey: ["/api/public/incidents"] });
       queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       // Show success state
@@ -139,7 +205,7 @@ export default function ReportIncidentPage() {
   const [isSubmitSuccess, setIsSubmitSuccess] = React.useState(false);
 
   function onSubmit(data: PublicIncidentFormValues) {
-    reportIncidentMutation.mutate(data);
+    reportIncidentMutation.mutate({ data, files: mediaFiles });
   }
 
   const nigeriaRegions = [...NIGERIA_REGIONS];
@@ -152,6 +218,8 @@ export default function ReportIncidentPage() {
     if (lat && lng) {
       const label = `Map location (${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)})`;
       form.setValue("location", label, { shouldDirty: true });
+      form.setValue("latitude", lat, { shouldDirty: true });
+      form.setValue("longitude", lng, { shouldDirty: true });
     }
   }, [searchString, form]);
 
@@ -466,6 +534,97 @@ export default function ReportIncidentPage() {
                             </FormItem>
                           )}
                         />
+
+                        <div className="rounded-lg border border-dashed border-sky-200 bg-sky-50/50 p-4 space-y-4">
+                          <h3 className="text-sm font-medium flex items-center gap-2 text-sky-900">
+                            <MapPin className="h-4 w-4" />
+                            Optional: GPS (web only)
+                          </h3>
+                          <p className="text-xs text-sky-800/80">
+                            If you know coordinates, enter them below. Opening this page from a map link may fill them automatically.
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <FormField
+                              control={form.control}
+                              name="latitude"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Latitude</FormLabel>
+                                  <FormControl>
+                                    <Input inputMode="decimal" placeholder="e.g. 9.0765" {...field} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name="longitude"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Longitude</FormLabel>
+                                  <FormControl>
+                                    <Input inputMode="decimal" placeholder="e.g. 7.3986" {...field} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-2"
+                            onClick={() => {
+                              if (!navigator.geolocation) {
+                                toast({ title: "Not supported", description: "Your browser cannot read location.", variant: "destructive" });
+                                return;
+                              }
+                              navigator.geolocation.getCurrentPosition(
+                                (pos) => {
+                                  form.setValue("latitude", String(pos.coords.latitude), { shouldValidate: true });
+                                  form.setValue("longitude", String(pos.coords.longitude), { shouldValidate: true });
+                                  toast({ title: "Location captured", description: "Coordinates filled from your device." });
+                                },
+                                () =>
+                                  toast({
+                                    title: "Location denied",
+                                    description: "Allow location or enter coordinates manually.",
+                                    variant: "destructive",
+                                  }),
+                              );
+                            }}
+                          >
+                            <Crosshair className="h-4 w-4" />
+                            Use my current location
+                          </Button>
+                        </div>
+
+                        <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/80 p-4 space-y-3">
+                          <h3 className="text-sm font-medium flex items-center gap-2">
+                            <ImagePlus className="h-4 w-4" />
+                            Optional: photos or short video
+                          </h3>
+                          <p className="text-xs text-muted-foreground">Up to 5 files, images or video only.</p>
+                          <Input
+                            type="file"
+                            accept="image/*,video/*"
+                            multiple
+                            className="cursor-pointer"
+                            onChange={(e) => {
+                              const list = e.target.files ? Array.from(e.target.files) : [];
+                              setMediaFiles(list.slice(0, 5));
+                            }}
+                          />
+                          {mediaFiles.length > 0 && (
+                            <ul className="text-xs text-muted-foreground list-disc pl-4">
+                              {mediaFiles.map((f) => (
+                                <li key={f.name + f.size}>{f.name}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
 
                         <div className="pt-4 border-t border-gray-100">
                           <h3 className="text-lg font-medium flex items-center gap-2 mb-1">

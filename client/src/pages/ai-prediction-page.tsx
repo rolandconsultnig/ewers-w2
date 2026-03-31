@@ -137,6 +137,10 @@ export default function AiPredictionPage() {
 
   const forecastPayload = forecastData?.forecast as Record<string, unknown> | undefined;
   const forecastSummary = (forecastPayload?.summary as Record<string, unknown>) || {};
+  const generatedBy = typeof forecastPayload?.generatedBy === "string" ? forecastPayload.generatedBy : null;
+  const forecastRationale =
+    typeof forecastSummary.rationale === "string" ? forecastSummary.rationale : null;
+
   const rawPredictedEvents = useMemo(() => {
     const list = forecastPayload?.predictedEvents;
     return Array.isArray(list) ? (list as Record<string, unknown>[]) : [];
@@ -183,8 +187,8 @@ export default function AiPredictionPage() {
       const conf = typeof forecastSummary.confidence === "number" ? `${forecastSummary.confidence}%` : "—";
       doc.text(`Risk level: ${risk} · Model confidence: ${conf}`, 14, y);
       y += 10;
-      if (forecastSummary.rationale) {
-        const lines = doc.splitTextToSize(String(forecastSummary.rationale), 180);
+      if (forecastRationale) {
+        const lines = doc.splitTextToSize(String(forecastRationale), 180);
         doc.text(lines, 14, y);
         y += lines.length * 5 + 6;
       }
@@ -245,7 +249,7 @@ export default function AiPredictionPage() {
       `Conflict forecast — ${regionLabel}`,
       `Timeline: ${predictionTimeline} days`,
       `Risk: ${String(forecastSummary.riskLevel ?? "—")} · Confidence: ${typeof forecastSummary.confidence === "number" ? forecastSummary.confidence + "%" : "—"}`,
-      forecastSummary.rationale ? `Summary: ${forecastSummary.rationale}` : "",
+      forecastRationale ? `Summary: ${forecastRationale}` : "",
       ...rawPredictedEvents.map(
         (e) =>
           `• ${String(e.type ?? "Event")} (${String(e.severity ?? "?")}, ${String(e.probability ?? "?")}%) — ${String(e.locationHint ?? "")}`,
@@ -283,7 +287,7 @@ export default function AiPredictionPage() {
     const descParts = [
       `Automated conflict event forecast (${predictionTimeline} days) for ${regionLabel}.`,
       typeof forecastSummary.confidence === "number" ? `Model confidence: ${forecastSummary.confidence}%.` : "",
-      forecastSummary.rationale ? `Rationale: ${forecastSummary.rationale}` : "",
+      forecastRationale ? `Rationale: ${forecastRationale}` : "",
       predictedEvents.length
         ? `Highlighted risks: ${predictedEvents.map((e) => e.type).join("; ")}.`
         : "",
@@ -601,17 +605,17 @@ export default function AiPredictionPage() {
                               ? `${Math.round(forecastSummary.confidence)}% confidence`
                               : "Confidence n/a"}
                           </Badge>
-                          {forecastPayload?.generatedBy && (
+                          {generatedBy && (
                             <Badge variant="secondary" className="capitalize">
-                              {String(forecastPayload.generatedBy)}
+                              {generatedBy}
                             </Badge>
                           )}
                         </div>
                       </div>
 
-                      {forecastSummary.rationale && (
+                      {forecastRationale && (
                         <p className="text-sm text-muted-foreground border-l-2 border-blue-300 pl-3">
-                          {String(forecastSummary.rationale)}
+                          {forecastRationale}
                         </p>
                       )}
 
@@ -633,11 +637,11 @@ export default function AiPredictionPage() {
                                     {String(ev.severity ?? "—")}
                                   </Badge>
                                 </div>
-                                {ev.rationale && (
+                                {typeof ev.rationale === "string" && ev.rationale.length > 0 && (
                                   <p className="text-sm text-gray-600 mt-1">{String(ev.rationale)}</p>
                                 )}
                                 <div className="flex flex-wrap items-center mt-2 text-xs text-gray-500 gap-x-3 gap-y-1">
-                                  {ev.locationHint && (
+                                  {typeof ev.locationHint === "string" && ev.locationHint.length > 0 && (
                                     <span className="flex items-center">
                                       <MapPin className="h-3 w-3 mr-1 shrink-0" />
                                       {String(ev.locationHint)}
@@ -674,10 +678,10 @@ export default function AiPredictionPage() {
                                     <div className={`w-2 h-8 ${bar} rounded-sm mr-3 shrink-0`} />
                                     <div className="min-w-0">
                                       <p className="font-medium truncate">{String(f.factor ?? "Factor")}</p>
-                                      {f.rationale && (
+                                      {typeof f.rationale === "string" && f.rationale.length > 0 && (
                                         <p className="text-xs text-gray-500 line-clamp-2">{String(f.rationale)}</p>
                                       )}
-                                      {f.category && !f.rationale && (
+                                      {typeof f.category === "string" && f.category.length > 0 && !(typeof f.rationale === "string" && f.rationale.length > 0) && (
                                         <p className="text-xs text-gray-500">{String(f.category)}</p>
                                       )}
                                     </div>

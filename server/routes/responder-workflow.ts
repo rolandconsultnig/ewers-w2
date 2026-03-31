@@ -278,7 +278,9 @@ export function setupResponderWorkflowRoutes(app: Router, storage: IStorage) {
     if (!valid) return res.status(400).json({ error: "category must be kinetic, non_kinetic, or omitted" });
     try {
       let teams = await storage.getResponseTeamsByCategory(category);
-      if (agency != null) teams = teams.filter((t: { agency?: string | null }) => (t.agency ?? "other") === agency);
+      if (agency != null) {
+        teams = teams.filter((t) => ((t as { agency?: string | null }).agency ?? "other") === agency);
+      }
       res.json(teams);
     } catch (e) {
       console.error("Error fetching responder teams:", e);

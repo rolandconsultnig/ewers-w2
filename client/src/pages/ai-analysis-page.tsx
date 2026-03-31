@@ -1498,9 +1498,11 @@ function NlpUtilsTab({ toast }: { toast: (t: any) => void }) {
         <div className="mb-3 p-3 rounded-md bg-background border">
           <p className="text-sm font-medium mb-1">Categories</p>
           <ul className="text-xs text-muted-foreground list-disc list-inside">
-            {cats.slice(0, 5).map((c: { category?: string; confidence?: number }, i: number) => (
-              <li key={i}>{c?.category ?? c} {c?.confidence != null ? `(${Math.round(c.confidence * 100)}%)` : ""}</li>
-            ))}
+            {cats.slice(0, 5).map((c: { category?: string; confidence?: number } | string, i: number) => {
+              const label = typeof c === "string" ? c : String(c?.category ?? "Unknown");
+              const confidence = typeof c === "string" ? null : c?.confidence;
+              return <li key={i}>{label} {confidence != null ? `(${Math.round(confidence * 100)}%)` : ""}</li>;
+            })}
           </ul>
         </div>
       );
