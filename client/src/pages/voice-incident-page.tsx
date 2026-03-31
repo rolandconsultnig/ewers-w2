@@ -46,6 +46,7 @@ type VoiceIncident = {
 export default function VoiceIncidentPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const NONE_VALUE = "none";
   const [audioBlob, setAudioBlob] = useState<Blob | File | null>(null);
   const [retranscribingId, setRetranscribingId] = useState<number | null>(null);
 
@@ -106,8 +107,8 @@ export default function VoiceIncidentPage() {
 
   // If the selected state changes, clear LGA so the user doesn't submit an invalid combination.
   useEffect(() => {
-    form.setValue("lga", "", { shouldDirty: true, shouldValidate: true });
-  }, [selectedState, form]);
+    form.setValue("lga", NONE_VALUE, { shouldDirty: true, shouldValidate: true });
+  }, [selectedState, form, NONE_VALUE]);
 
   const submitVoiceIncidentMutation = useMutation({
     mutationFn: async (data: VoiceIncidentFormValues & { audioFile: Blob | File }) => {
@@ -123,8 +124,8 @@ export default function VoiceIncidentPage() {
       // Add form fields
       formData.append('location', data.location);
       formData.append('region', data.region);
-      if (data.state) formData.append('state', data.state);
-      if (data.lga) formData.append('lga', data.lga);
+      if (data.state && data.state !== NONE_VALUE) formData.append('state', data.state);
+      if (data.lga && data.lga !== NONE_VALUE) formData.append('lga', data.lga);
       formData.append('severity', data.severity);
       formData.append('category', data.category);
 
@@ -359,7 +360,7 @@ export default function VoiceIncidentPage() {
                           <FormLabel>LGA (Optional)</FormLabel>
                           <Select
                             onValueChange={(v) => field.onChange(v)}
-                            value={field.value ?? ""}
+                            value={field.value ?? NONE_VALUE}
                             disabled={!selectedState}
                           >
                             <FormControl>
@@ -370,9 +371,9 @@ export default function VoiceIncidentPage() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="">Not specified</SelectItem>
+                              <SelectItem value={NONE_VALUE}>Not specified</SelectItem>
                               {loadingLgaOptions ? (
-                                <SelectItem value="" disabled>
+                                <SelectItem value="loading" disabled>
                                   Loading...
                                 </SelectItem>
                               ) : (
@@ -397,7 +398,7 @@ export default function VoiceIncidentPage() {
                           <FormLabel>State (Optional)</FormLabel>
                           <Select
                             onValueChange={(v) => field.onChange(v)}
-                            defaultValue={field.value ?? ""}
+                            value={field.value ?? NONE_VALUE}
                           >
                             <FormControl>
                               <SelectTrigger>
@@ -405,7 +406,7 @@ export default function VoiceIncidentPage() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="">Not specified</SelectItem>
+                              <SelectItem value={NONE_VALUE}>Not specified</SelectItem>
                               {selectedRegion &&
                                 nigeriaRegions[selectedRegion]?.map((s) => (
                                   <SelectItem key={s} value={s}>
@@ -546,43 +547,39 @@ export default function VoiceIncidentPage() {
                             </p>
                           )}
                         </div>
-                        {inc.audioRecordingUrl && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={retranscribingId === inc.id}
-                            className="shrink-0 gap-1"
-                            onClick={async () => {
-                              setRetranscribingId(inc.id);
-                              try {
-                                const res = await apiRequest("POST", `/api/incidents/${inc.id}/retranscribe`, {});
-                                await res.json();
-                                toast({ title: "Transcription updated" });
-                                await refetchVoice();
-                              } catch (e) {
-                                toast({
-                                  title: "Transcription failed",
-                                  description: e instanceof Error ? e.message : "Try again",
-                                  variant: "destructive",
-                                });
-                              } finally {
-                                setRetranscribingId(null);
-                              }
-                            }}
-                          >
-                            <RefreshCw className={`h-4 w-4 ${retranscribingId === inc.id ? "animate-spin" : ""}`} />
-                            Transcribe
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={retranscribingId === inc.id}
+                          className="shrink-0 gap-1"
+                          onClick={async () => {
+                            setRetranscribingId(inc.id);
+                            try {
+                              const res = await apiRequest("POST", `/api/incidents/${inc.id}/retranscribe`, {});
+                              await res.json();
+                              toast({ title: inc.audioTranscription ? "Transcription updated" : "Transcription generated" });
+                              await refetchVoice();
+                            } catch (e) {
+                              toast({
+                                title: "Transcription failed",
+                                description: e instanceof Error ? e.message : "Try again",
+                                variant: "destructive",
+                              });
+                            } finally {
+                              setRetranscribingId(null);
+                            }
+                          }}
+                        >
+                          <RefreshCw className={`h-4 w-4 ${retranscribingId === inc.id ? "animate-spin" : ""}`} />
+                          {inc.audioTranscription ? "Re-transcribe" : "Transcribe"}
+                        </Button>
                       </div>
-                      {inc.audioRecordingUrl && (
-                        <audio
-                          controls
-                          className="w-full max-w-md mt-3"
-                          src={inc.audioRecordingUrl}
-                          preload="metadata"
-                        />
-                      )}
+                      <audio
+                        controls
+                        className="w-full max-w-md mt-3"
+                        src={`/api/incidents/${inc.id}/audio`}
+                        preload="metadata"
+                      />
                       {inc.audioTranscription && (
                         <div className="mt-3 p-2 bg-muted/50 rounded text-sm">
                           <p className="text-xs font-medium text-muted-foreground mb-1">Transcription</p>

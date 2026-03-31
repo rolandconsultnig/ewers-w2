@@ -168,7 +168,7 @@ export function IncidentDetailModal({ incident, open, onOpenChange }: IncidentDe
                 <audio
                   controls
                   className="w-full mt-1"
-                  src={internalIncident.audioRecordingUrl}
+                  src={`/api/incidents/${internalIncident.id}/audio`}
                 >
                   Your browser does not support the audio element.
                 </audio>

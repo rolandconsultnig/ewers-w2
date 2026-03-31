@@ -72,7 +72,8 @@ export function IncidentMediaReview({
   const urls = (mediaUrls ?? []).filter((u): u is string => typeof u === "string" && u.length > 0);
   const isVoice = reportingMethod === "voice";
   const hasStoredAudio = !!audioRecordingUrl?.trim();
-  const audioSrc = hasStoredAudio ? audioRecordingUrl! : `/api/incidents/${incidentId}/audio`;
+  // Always stream via authenticated API so logged-in users can reliably listen.
+  const audioSrc = `/api/incidents/${incidentId}/audio`;
 
   if (urls.length === 0 && !showGeo && !isVoice && !hasStoredAudio) {
     return null;

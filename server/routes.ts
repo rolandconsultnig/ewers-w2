@@ -80,7 +80,7 @@ import {
 import { PLATFORM_FEATURES, getFeaturesByCategory } from "@shared/permissions";
 import { isDepartmentId } from "@shared/department-access";
 import { getRolePermissionTemplates, saveRolePermissionTemplate } from "./role-permissions";
-import { desc, eq, count, sql } from "drizzle-orm";
+import { and, desc, eq, count, gte, lte, sql } from "drizzle-orm";
 import path from "path";
 import { all as getAllNigerianStatesAndLgas } from "nigerian-states-and-lgas";
 
@@ -117,6 +117,48 @@ const getLgaOptionsForState = (state: string): string[] => {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication routes
   setupAuth(app);
+  
+  // Broad activity trail for authenticated API calls.
+  app.use((req, res, next) => {
+    if (!req.path.startsWith("/api")) return next();
+    if (req.path.startsWith("/api/enterprise/audit-logs")) return next();
+    if (req.path.startsWith("/api/auth/forgot-password") || req.path.startsWith("/api/auth/reset-password")) return next();
+    if (!req.isAuthenticated?.() || !req.user) return next();
+
+    const method = req.method.toUpperCase();
+    const action: auditService.AuditAction =
+      method === "POST"
+        ? "create"
+        : method === "PUT" || method === "PATCH"
+          ? "update"
+          : method === "DELETE"
+            ? "delete"
+            : "view";
+    const rawResource = req.path.replace(/^\/api\/?/, "").split("/")[0] || "api";
+    const resource = rawResource.slice(0, 50);
+    const start = Date.now();
+
+    res.on("finish", () => {
+      if (res.statusCode >= 400) return;
+      const user = req.user as SelectUser;
+      void auditService.logAudit({
+        userId: user.id,
+        action,
+        resource: resource as auditService.AuditResource,
+        successful: true,
+        details: {
+          method,
+          path: req.path,
+          query: req.query,
+          durationMs: Date.now() - start,
+          statusCode: res.statusCode,
+        },
+        ...auditService.getClientInfo(req),
+      });
+    });
+
+    next();
+  });
   
   // Health check endpoint for AWS deployment
   app.get("/api/health", (req, res) => {
@@ -174,6 +216,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Online user presence tracking
   const onlineUsers = new Map<string, { userId: number; username: string }>();
+  const lastSeenByUserId = new Map<number, Date>();
 
   io.on("connection", async (socket) => {
     const userId = socket.handshake.auth?.userId;
@@ -189,6 +232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : undefined;
     if (userId && username) {
       onlineUsers.set(socket.id, { userId, username });
+      lastSeenByUserId.set(Number(userId), new Date());
       io.emit("online-users", Array.from(onlineUsers.values()));
     }
 
@@ -276,6 +320,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     socket.on("disconnect", () => {
       clearInterval(alertInterval);
+      const disconnectedUser = onlineUsers.get(socket.id);
+      if (disconnectedUser?.userId) {
+        lastSeenByUserId.set(Number(disconnectedUser.userId), new Date());
+      }
       onlineUsers.delete(socket.id);
       io.emit("online-users", Array.from(onlineUsers.values()));
     });
@@ -1186,11 +1234,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (user.securityLevel < 5 && user.role !== "admin") return res.status(403).json({ error: "Admin required" });
     try {
       const limit = Math.min(parseInt((req.query.limit as string) || "100"), 500);
-      const logs = await db.select().from(accessLogs).orderBy(desc(accessLogs.timestamp)).limit(limit);
-      res.json(logs);
+      const userIdFilter = req.query.userId ? parseInt(String(req.query.userId), 10) : undefined;
+      const actionFilter = typeof req.query.action === "string" && req.query.action !== "all" ? req.query.action : undefined;
+      const resourceFilter = typeof req.query.resource === "string" && req.query.resource !== "all" ? req.query.resource : undefined;
+      const successfulFilter =
+        req.query.successful === "true" ? true : req.query.successful === "false" ? false : undefined;
+      const fromFilter = typeof req.query.from === "string" && req.query.from ? new Date(req.query.from) : undefined;
+      const toFilter = typeof req.query.to === "string" && req.query.to ? new Date(req.query.to) : undefined;
+      const eventFilter = typeof req.query.event === "string" && req.query.event.trim() ? req.query.event.trim() : undefined;
+
+      const whereClauses = [];
+      if (Number.isFinite(userIdFilter)) whereClauses.push(eq(accessLogs.userId, userIdFilter!));
+      if (actionFilter) whereClauses.push(eq(accessLogs.action, actionFilter));
+      if (resourceFilter) whereClauses.push(eq(accessLogs.resource, resourceFilter));
+      if (typeof successfulFilter === "boolean") whereClauses.push(eq(accessLogs.successful, successfulFilter));
+      if (fromFilter && !Number.isNaN(fromFilter.getTime())) whereClauses.push(gte(accessLogs.timestamp, fromFilter));
+      if (toFilter && !Number.isNaN(toFilter.getTime())) whereClauses.push(lte(accessLogs.timestamp, toFilter));
+      if (eventFilter) {
+        const likeTerm = `%${eventFilter}%`;
+        whereClauses.push(
+          sql`(${accessLogs.action} ILIKE ${likeTerm} OR ${accessLogs.resource} ILIKE ${likeTerm})`
+        );
+      }
+
+      let query = db.select().from(accessLogs).orderBy(desc(accessLogs.timestamp)).limit(limit);
+      if (whereClauses.length > 0) {
+        query = db
+          .select()
+          .from(accessLogs)
+          .where(and(...whereClauses))
+          .orderBy(desc(accessLogs.timestamp))
+          .limit(limit);
+      }
+
+      const logs = await query;
+      const users = await storage.getAllUsers();
+      const usersById = new Map(users.map((u) => [u.id, u]));
+      const enriched = logs.map((log) => {
+        const u = usersById.get(log.userId);
+        return {
+          ...log,
+          user: u
+            ? { id: u.id, username: u.username, fullName: u.fullName, role: u.role }
+            : null,
+        };
+      });
+      res.json(enriched);
     } catch (error) {
       console.error("Error fetching audit logs:", error);
       res.status(500).json({ error: "Failed to fetch audit logs" });
+    }
+  });
+
+  app.get("/api/enterprise/user-presence", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const user = req.user as SelectUser;
+    if (user.securityLevel < 5 && user.role !== "admin") return res.status(403).json({ error: "Admin required" });
+    try {
+      const users = await storage.getAllUsers();
+      const onlineUserIds = new Set(Array.from(onlineUsers.values()).map((u) => Number(u.userId)));
+      const rows = users.map((u) => ({
+        userId: u.id,
+        online: onlineUserIds.has(u.id),
+        lastSeenAt: lastSeenByUserId.get(u.id)?.toISOString() || null,
+      }));
+      res.json(rows);
+    } catch (error) {
+      console.error("Error fetching user presence:", error);
+      res.status(500).json({ error: "Failed to fetch user presence" });
     }
   });
 

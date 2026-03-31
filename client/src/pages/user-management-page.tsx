@@ -131,6 +131,7 @@ const resetPasswordSchema = z
   .refine((d) => d.newPassword === d.confirmPassword, { message: "Passwords don't match", path: ["confirmPassword"] });
 
 type ResetPasswordValues = z.infer<typeof resetPasswordSchema>;
+type UserPresence = { userId: number; online: boolean; lastSeenAt: string | null };
 
 export default function UserManagementPage() {
   const { toast } = useToast();
@@ -165,6 +166,10 @@ export default function UserManagementPage() {
     error: auditLogsError,
   } = useQuery<AccessLog[]>({
     queryKey: ["/api/enterprise/audit-logs?limit=50"],
+  });
+  const { data: userPresence = [] } = useQuery<UserPresence[]>({
+    queryKey: ["/api/enterprise/user-presence"],
+    refetchInterval: 15000,
   });
 
   const { data: permissionsData } = useQuery<{ features: { id: string; label: string; category: string; description?: string }[]; byCategory: Record<string, { id: string; label: string; category: string; description?: string }[]> }>({
@@ -346,6 +351,7 @@ export default function UserManagementPage() {
     
     return roleMatch && searchMatch;
   });
+  const presenceByUserId = new Map(userPresence.map((p) => [p.userId, p]));
   
   // Get role badge
   const getRoleBadge = (role: string) => {
@@ -445,6 +451,7 @@ export default function UserManagementPage() {
                   <TableHead>Username</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Department</TableHead>
+                  <TableHead>Presence</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -470,6 +477,21 @@ export default function UserManagementPage() {
                       <Badge variant="outline" className="font-normal">
                         {DEPARTMENT_LABELS[normalizeDepartmentId(user.department)]}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const p = presenceByUserId.get(user.id);
+                        if (p?.online) return <Badge className="bg-green-100 text-green-800">Online</Badge>;
+                        if (p?.lastSeenAt) {
+                          return (
+                            <div className="text-xs text-muted-foreground">
+                              <Badge variant="secondary">Offline</Badge>
+                              <div className="mt-1">Last seen: {new Date(p.lastSeenAt).toLocaleString()}</div>
+                            </div>
+                          );
+                        }
+                        return <Badge variant="secondary">Offline</Badge>;
+                      })()}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
