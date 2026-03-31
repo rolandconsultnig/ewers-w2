@@ -23,16 +23,32 @@ declare global {
 const scryptAsync = promisify(scrypt);
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "ewers-jwt-secret";
 const JWT_EXPIRES = (process.env.JWT_EXPIRES || "7d") as jwt.SignOptions["expiresIn"];
+const activeSessionByUserId = new Map<number, string>();
+const activeTokenVersionByUserId = new Map<number, number>();
 
-export function generateJWT(user: SelectUser): string {
+function getOrCreateTokenVersion(userId: number): number {
+  const current = activeTokenVersionByUserId.get(userId);
+  if (typeof current === "number") return current;
+  activeTokenVersionByUserId.set(userId, 1);
+  return 1;
+}
+
+function rotateTokenVersion(userId: number): number {
+  const next = (activeTokenVersionByUserId.get(userId) ?? 0) + 1;
+  activeTokenVersionByUserId.set(userId, next);
+  return next;
+}
+
+export function generateJWT(user: SelectUser, tokenVersion?: number): string {
+  const sessionVersion = tokenVersion ?? getOrCreateTokenVersion(user.id);
   return jwt.sign(
-    { id: user.id, username: user.username, role: user.role, securityLevel: user.securityLevel },
+    { id: user.id, username: user.username, role: user.role, securityLevel: user.securityLevel, sessionVersion },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES }
   );
 }
 
-export function verifyJWT(token: string): { id: number; username: string; role: string; securityLevel: number } | null {
+export function verifyJWT(token: string): { id: number; username: string; role: string; securityLevel: number; sessionVersion?: number } | null {
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { id: number; username: string; role: string; securityLevel: number };
     return decoded;
@@ -166,6 +182,10 @@ export function setupAuth(app: Express) {
       try {
         const payload = verifyJWT(token);
         if (payload) {
+          const activeVersion = activeTokenVersionByUserId.get(payload.id);
+          if (typeof activeVersion === "number" && payload.sessionVersion !== activeVersion) {
+            return next();
+          }
           const user = await storage.getUser(payload.id);
           if (user && user.active !== false) req.user = user;
         }
@@ -183,6 +203,29 @@ export function setupAuth(app: Express) {
     (req as any).isAuthenticated = function (): boolean {
       return !!req.user || orig();
     };
+    next();
+  });
+
+  // Enforce one active session per user (latest login wins).
+  app.use((req, _res, next) => {
+    if (req.path.startsWith("/socket.io")) return next();
+    const user = req.user as SelectUser | undefined;
+    if (!user || !req.sessionID) return next();
+    const activeSid = activeSessionByUserId.get(user.id);
+    if (!activeSid) {
+      activeSessionByUserId.set(user.id, req.sessionID);
+      return next();
+    }
+    if (activeSid !== req.sessionID) {
+      req.logout(() => {
+        if (req.session) {
+          req.session.destroy(() => next());
+        } else {
+          next();
+        }
+      });
+      return;
+    }
     next();
   });
 
@@ -341,7 +384,15 @@ export function setupAuth(app: Express) {
           });
         }
         try {
-          const token = generateJWT(user);
+          const tokenVersion = rotateTokenVersion(user.id);
+          const previousSid = activeSessionByUserId.get(user.id);
+          if (previousSid && previousSid !== req.sessionID) {
+            storage.sessionStore.destroy(previousSid, () => {});
+          }
+          if (req.sessionID) {
+            activeSessionByUserId.set(user.id, req.sessionID);
+          }
+          const token = generateJWT(user, tokenVersion);
           res.status(200).json({ user: toSafeUser(user), token });
         } catch (jwtErr) {
           console.error("[auth] JWT sign error:", jwtErr);
@@ -361,11 +412,21 @@ export function setupAuth(app: Express) {
 
   app.post("/api/auth/jwt", passport.authenticate("local", { session: false }), (req, res) => {
     const user = req.user as SelectUser;
-    const token = generateJWT(user);
+    const tokenVersion = rotateTokenVersion(user.id);
+    const activeSid = activeSessionByUserId.get(user.id);
+    if (activeSid) {
+      storage.sessionStore.destroy(activeSid, () => {});
+      activeSessionByUserId.delete(user.id);
+    }
+    const token = generateJWT(user, tokenVersion);
     res.status(200).json({ token, expiresIn: JWT_EXPIRES });
   });
 
   app.post("/api/logout", (req, res, next) => {
+    const currentUser = req.user as SelectUser | undefined;
+    if (currentUser && req.sessionID && activeSessionByUserId.get(currentUser.id) === req.sessionID) {
+      activeSessionByUserId.delete(currentUser.id);
+    }
     req.logout((err) => {
       if (err) return next(err);
       res.sendStatus(200);
@@ -373,6 +434,10 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/auth/logout", (req, res, next) => {
+    const currentUser = req.user as SelectUser | undefined;
+    if (currentUser && req.sessionID && activeSessionByUserId.get(currentUser.id) === req.sessionID) {
+      activeSessionByUserId.delete(currentUser.id);
+    }
     req.logout((err) => {
       if (err) return next(err);
       res.sendStatus(200);
