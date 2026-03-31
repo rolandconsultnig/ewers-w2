@@ -40,4 +40,14 @@ export async function saveRolePermissionTemplate(
       updatedBy,
     });
   }
+
+  // Apply updated role permissions to all existing users in this role
+  // so role-level changes take effect immediately platform-wide.
+  const users = await storage.getAllUsers();
+  const targetRole = normalized;
+  await Promise.all(
+    users
+      .filter((u) => (u.role || "").toLowerCase() === targetRole)
+      .map((u) => storage.updateUser(u.id, { permissions })),
+  );
 }

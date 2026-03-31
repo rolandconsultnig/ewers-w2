@@ -181,6 +181,102 @@ router.post('/voice', (req, res) => {
 });
 
 /**
+ * POST /api/incidents/public/voice
+ * Public voice incident submission (no login required)
+ */
+router.post('/public/voice', (req, res) => {
+  upload.single('audio')(req, res, async (uploadError: any) => {
+    if (uploadError) {
+      return res.status(400).json({
+        error: 'Invalid audio upload',
+        details: uploadError.message || 'Upload failed',
+      });
+    }
+
+    try {
+      const audioFile = req.file;
+      if (!audioFile) {
+        return res.status(400).json({ error: 'No audio file provided' });
+      }
+
+      const users = await storage.getAllUsers();
+      const systemUser = users.find((u) => u.role === 'admin') ?? users[0];
+      if (!systemUser) {
+        fs.unlinkSync(audioFile.path);
+        return res.status(500).json({ error: 'Service temporarily unavailable' });
+      }
+
+      const { location, region, state, lga, severity, category } = req.body;
+      const normalizedLocation = typeof location === "string" && location.trim().length > 0 ? location.trim() : "Unknown location";
+      const normalizedRegion = typeof region === "string" && region.trim().length > 0 ? region.trim() : "Unknown";
+      const normalizedSeverity =
+        typeof severity === "string" && ["low", "medium", "high", "critical"].includes(severity)
+          ? severity
+          : "medium";
+      const normalizedCategory =
+        typeof category === "string" &&
+        ["violence", "protest", "natural_disaster", "economic", "political", "sgbv", "conflict", "terrorism", "kidnapping", "infrastructure"].includes(category)
+          ? category
+          : "conflict";
+
+      const transcriptionResult = await audioTranscriptionService.transcribeAudio(audioFile.path);
+      const audioUrl = `/uploads/audio/${audioFile.filename}`;
+      const transcriptionText = sanitizeTranscriptionText(transcriptionResult.text) || "[Transcription unavailable]";
+      const titleMatch = transcriptionText.match(/^[^.!?]+[.!?]/);
+      const title = titleMatch
+        ? titleMatch[0].trim()
+        : transcriptionText.substring(0, 50) + (transcriptionText.length > 50 ? '...' : '');
+
+      const incidentData = {
+        title: title || 'Voice Reported Incident',
+        description: transcriptionText,
+        location: normalizedLocation,
+        region: normalizedRegion,
+        state: state || null,
+        lga: lga || null,
+        severity: normalizedSeverity,
+        category: normalizedCategory,
+        status: 'pending',
+        reportedBy: systemUser.id,
+        verificationStatus: 'unverified',
+        reportingMethod: 'voice',
+        audioRecordingUrl: audioUrl,
+        audioTranscription: transcriptionText,
+        transcriptionConfidence: transcriptionResult.confidence,
+        coordinates: req.body.coordinates ? JSON.parse(req.body.coordinates) : null,
+        impactedPopulation: req.body.impactedPopulation ? parseInt(req.body.impactedPopulation) : null,
+      };
+
+      const validatedData = insertIncidentSchema.parse(incidentData);
+      const newIncident = await storage.createIncident(validatedData);
+
+      res.status(201).json({
+        success: true,
+        incident: newIncident,
+        transcription: {
+          text: transcriptionText,
+          confidence: transcriptionResult.confidence,
+          language: transcriptionResult.language,
+          duration: transcriptionResult.duration,
+        },
+        audioUrl,
+      });
+    } catch (error) {
+      const file = req.file as { path?: string } | undefined;
+      if (file?.path && fs.existsSync(file.path)) {
+        try {
+          fs.unlinkSync(file.path);
+        } catch {}
+      }
+      console.error('Public voice incident failed:', error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to process voice report',
+      });
+    }
+  });
+});
+
+/**
  * GET /api/incidents/voice
  * Get all voice-reported incidents
  */

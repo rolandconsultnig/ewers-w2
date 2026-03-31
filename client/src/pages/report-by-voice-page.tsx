@@ -1,39 +1,13 @@
 import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import { ArrowLeft, Mic, MapPin, Loader2 } from "lucide-react";
+import { ArrowLeft, Mic, Loader2 } from "lucide-react";
 import ipcr_logo from "@assets/Institute-For-Peace-And-Conflict-Resolution.jpg";
-
-const schema = z.object({
-  location: z.string().min(2, "Location is required"),
-  region: z.string().min(2, "Region is required"),
-  severity: z.enum(["low", "medium", "high", "critical"]),
-  category: z.enum([
-    "violence",
-    "protest",
-    "natural_disaster",
-    "economic",
-    "political",
-    "sgbv",
-    "conflict",
-    "terrorism",
-    "kidnapping",
-    "infrastructure",
-  ]),
-});
-
-type FormValues = z.infer<typeof schema>;
 
 export default function ReportByVoicePage() {
   const { toast } = useToast();
@@ -42,24 +16,10 @@ export default function ReportByVoicePage() {
   const [showRecorder, setShowRecorder] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      location: "",
-      region: "North Central",
-      severity: "medium",
-      category: "conflict",
-    },
-  });
-
   const submitMutation = useMutation({
-    mutationFn: async (data: FormValues & { audioFile: Blob }) => {
+    mutationFn: async (data: { audioFile: Blob }) => {
       const formData = new FormData();
       formData.append("audio", data.audioFile, "voice-report.webm");
-      formData.append("location", data.location);
-      formData.append("region", data.region);
-      formData.append("severity", data.severity);
-      formData.append("category", data.category);
 
       const res = await fetch("/api/incidents/public/voice", {
         method: "POST",
@@ -80,7 +40,6 @@ export default function ReportByVoicePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/public/incidents"] });
       queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       setSuccess(true);
-      form.reset();
       setAudioBlob(null);
       setShowRecorder(false);
     },
@@ -98,11 +57,11 @@ export default function ReportByVoicePage() {
     setAudioDuration(duration);
     toast({
       title: "Recording saved",
-      description: `Audio recorded (${duration}s). Add location details and submit.`,
+      description: `Audio recorded (${duration}s). Submit when ready.`,
     });
   };
 
-  const onSubmit = (data: FormValues) => {
+  const onSubmit = () => {
     if (!audioBlob) {
       toast({
         title: "No recording",
@@ -111,7 +70,7 @@ export default function ReportByVoicePage() {
       });
       return;
     }
-    submitMutation.mutate({ ...data, audioFile: audioBlob });
+    submitMutation.mutate({ audioFile: audioBlob });
   };
 
   if (success) {
@@ -199,7 +158,7 @@ export default function ReportByVoicePage() {
               Record & submit
             </CardTitle>
             <CardDescription className="text-white/90">
-              Step 1: Record. Step 2: Add location and type. Step 3: Submit.
+              Step 1: Record. Step 2: Submit.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6 space-y-6">
@@ -240,120 +199,21 @@ export default function ReportByVoicePage() {
             </div>
 
             <div className="border-t pt-6">
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <MapPin className="h-5 w-5" /> Step 2: Where did it happen?
-              </h3>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="location"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Location</FormLabel>
-                          <FormControl>
-                            <Input placeholder="e.g. town or area" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="region"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Region</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select region" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="North Central">North Central</SelectItem>
-                              <SelectItem value="North East">North East</SelectItem>
-                              <SelectItem value="North West">North West</SelectItem>
-                              <SelectItem value="South East">South East</SelectItem>
-                              <SelectItem value="South South">South South</SelectItem>
-                              <SelectItem value="South West">South West</SelectItem>
-                              <SelectItem value="Federal Capital Territory">FCT</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="severity"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Severity</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="low">Low</SelectItem>
-                              <SelectItem value="medium">Medium</SelectItem>
-                              <SelectItem value="high">High</SelectItem>
-                              <SelectItem value="critical">Critical</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="category"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Type</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="conflict">Conflict</SelectItem>
-                              <SelectItem value="violence">Violence</SelectItem>
-                              <SelectItem value="protest">Protest</SelectItem>
-                              <SelectItem value="political">Political</SelectItem>
-                              <SelectItem value="sgbv">SGBV</SelectItem>
-                              <SelectItem value="natural_disaster">Natural Disaster</SelectItem>
-                              <SelectItem value="economic">Economic</SelectItem>
-                              <SelectItem value="terrorism">Terrorism</SelectItem>
-                              <SelectItem value="kidnapping">Kidnapping</SelectItem>
-                              <SelectItem value="infrastructure">Infrastructure</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    className="w-full sm:w-auto"
-                    disabled={!audioBlob || submitMutation.isPending}
-                  >
-                    {submitMutation.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Submitting...
-                      </>
-                    ) : (
-                      "Submit voice report"
-                    )}
-                  </Button>
-                </form>
-              </Form>
+              <Button
+                type="button"
+                onClick={onSubmit}
+                className="w-full sm:w-auto"
+                disabled={!audioBlob || submitMutation.isPending}
+              >
+                {submitMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  "Submit voice report"
+                )}
+              </Button>
             </div>
           </CardContent>
         </Card>
