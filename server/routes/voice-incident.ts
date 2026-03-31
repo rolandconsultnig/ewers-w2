@@ -13,6 +13,22 @@ function audioFileAbsolute(storedUrl: string): string {
   return path.join(process.cwd(), rel);
 }
 
+function sanitizeTranscriptionText(text: string | null | undefined): string | null | undefined {
+  if (!text) return text;
+  const normalized = text.toLowerCase();
+  if (
+    normalized.includes("openai") ||
+    normalized.includes("deepseek") ||
+    normalized.includes("api key") ||
+    normalized.includes("not configured") ||
+    normalized.includes("[transcription unavailable") ||
+    normalized.includes("[transcription failed")
+  ) {
+    return "[Transcription unavailable]";
+  }
+  return text;
+}
+
 // Configure multer for audio file uploads
 const uploadDir = path.join(process.cwd(), 'uploads', 'audio');
 if (!fs.existsSync(uploadDir)) {
@@ -51,104 +67,117 @@ const upload = multer({
  * POST /api/incidents/voice
  * Upload voice recording and create incident with transcription
  */
-router.post('/voice', upload.single('audio'), async (req, res) => {
-  if (!req.isAuthenticated()) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-
-  try {
-    const audioFile = req.file;
-    if (!audioFile) {
-      return res.status(400).json({ error: 'No audio file provided' });
-    }
-
-    const user = req.user as SelectUser;
-    const { location, region, state, lga, severity, category } = req.body;
-
-    // Validate required fields
-    if (!location || !region || !severity || !category) {
-      // Clean up uploaded file
-      fs.unlinkSync(audioFile.path);
-      return res.status(400).json({ 
-        error: 'Missing required fields: location, region, severity, category' 
+router.post('/voice', (req, res) => {
+  upload.single('audio')(req, res, async (uploadError: any) => {
+    if (uploadError) {
+      return res.status(400).json({
+        error: 'Invalid audio upload',
+        details: uploadError.message || 'Upload failed',
       });
     }
 
-    console.log(`Processing voice incident from user ${user.id}, file: ${audioFile.filename}`);
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    try {
+      const audioFile = req.file;
+      if (!audioFile) {
+        return res.status(400).json({ error: 'No audio file provided' });
+      }
+
+      const user = req.user as SelectUser;
+      const { location, region, state, lga, severity, category } = req.body;
+
+    // Step 2 metadata is optional; apply safe defaults when omitted.
+    const normalizedLocation = typeof location === "string" && location.trim().length > 0 ? location.trim() : "Unknown location";
+    const normalizedRegion = typeof region === "string" && region.trim().length > 0 ? region.trim() : "Unknown";
+    const normalizedSeverity =
+      typeof severity === "string" && ["low", "medium", "high", "critical"].includes(severity)
+        ? severity
+        : "medium";
+    const normalizedCategory =
+      typeof category === "string" &&
+      ["violence", "protest", "natural_disaster", "economic", "political", "sgbv", "conflict", "terrorism", "kidnapping", "infrastructure"].includes(category)
+        ? category
+        : "conflict";
+
+      console.log(`Processing voice incident from user ${user.id}, file: ${audioFile.filename}`);
 
     // Transcribe the audio
-    const transcriptionResult = await audioTranscriptionService.transcribeAudio(audioFile.path);
+      const transcriptionResult = await audioTranscriptionService.transcribeAudio(audioFile.path);
 
     // Generate audio URL (relative path for storage)
-    const audioUrl = `/uploads/audio/${audioFile.filename}`;
+      const audioUrl = `/uploads/audio/${audioFile.filename}`;
 
     // Extract title from transcription (first sentence or first 50 chars)
-    const transcriptionText = transcriptionResult.text;
-    const titleMatch = transcriptionText.match(/^[^.!?]+[.!?]/);
-    const title = titleMatch 
-      ? titleMatch[0].trim() 
-      : transcriptionText.substring(0, 50) + (transcriptionText.length > 50 ? '...' : '');
+      const transcriptionText = transcriptionResult.text;
+      const titleMatch = transcriptionText.match(/^[^.!?]+[.!?]/);
+      const title = titleMatch
+        ? titleMatch[0].trim()
+        : transcriptionText.substring(0, 50) + (transcriptionText.length > 50 ? '...' : '');
 
     // Create incident with transcription
-    const incidentData = {
-      title: title || 'Voice Reported Incident',
-      description: transcriptionText || '[No transcription available]',
-      location,
-      region,
-      state: state || null,
-      lga: lga || null,
-      severity,
-      category,
-      status: 'pending',
-      reportedBy: user.id,
-      verificationStatus: 'unverified',
-      reportingMethod: 'voice',
-      audioRecordingUrl: audioUrl,
-      audioTranscription: transcriptionText,
-      transcriptionConfidence: transcriptionResult.confidence,
-      coordinates: req.body.coordinates ? JSON.parse(req.body.coordinates) : null,
-      impactedPopulation: req.body.impactedPopulation ? parseInt(req.body.impactedPopulation) : null,
-    };
+      const incidentData = {
+        title: title || 'Voice Reported Incident',
+        description: transcriptionText || '[No transcription available]',
+        location: normalizedLocation,
+        region: normalizedRegion,
+        state: state || null,
+        lga: lga || null,
+        severity: normalizedSeverity,
+        category: normalizedCategory,
+        status: 'pending',
+        reportedBy: user.id,
+        verificationStatus: 'unverified',
+        reportingMethod: 'voice',
+        audioRecordingUrl: audioUrl,
+        audioTranscription: transcriptionText,
+        transcriptionConfidence: transcriptionResult.confidence,
+        coordinates: req.body.coordinates ? JSON.parse(req.body.coordinates) : null,
+        impactedPopulation: req.body.impactedPopulation ? parseInt(req.body.impactedPopulation) : null,
+      };
 
     // Validate and create incident
-    const validatedData = insertIncidentSchema.parse(incidentData);
-    const newIncident = await storage.createIncident(validatedData);
+      const validatedData = insertIncidentSchema.parse(incidentData);
+      const newIncident = await storage.createIncident(validatedData);
 
-    console.log(`Voice incident created successfully: ID ${newIncident.id}`);
+      console.log(`Voice incident created successfully: ID ${newIncident.id}`);
 
-    res.status(201).json({
-      success: true,
-      incident: newIncident,
-      transcription: {
-        text: transcriptionText,
-        confidence: transcriptionResult.confidence,
-        language: transcriptionResult.language,
-        duration: transcriptionResult.duration,
-      },
-      audioUrl,
-    });
+      res.status(201).json({
+        success: true,
+        incident: newIncident,
+        transcription: {
+          text: transcriptionText,
+          confidence: transcriptionResult.confidence,
+          language: transcriptionResult.language,
+          duration: transcriptionResult.duration,
+        },
+        audioUrl,
+      });
 
-  } catch (error) {
-    console.error('Voice incident creation failed:', error);
-    
-    // Clean up uploaded file on error
-    if (req.file && fs.existsSync(req.file.path)) {
-      try {
-        fs.unlinkSync(req.file.path);
-      } catch (cleanupError) {
-        console.error('Failed to clean up audio file:', cleanupError);
+    } catch (error) {
+      console.error('Voice incident creation failed:', error);
+
+      // Clean up uploaded file on error
+      if (req.file && fs.existsSync(req.file.path)) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (cleanupError) {
+          console.error('Failed to clean up audio file:', cleanupError);
+        }
+      }
+
+      if (error instanceof Error) {
+        res.status(500).json({
+          error: 'Failed to process voice incident',
+          details: error.message
+        });
+      } else {
+        res.status(500).json({ error: 'Failed to process voice incident' });
       }
     }
-
-    if (error instanceof Error) {
-      res.status(500).json({ 
-        error: 'Failed to process voice incident',
-        details: error.message 
-      });
-    } else {
-      res.status(500).json({ error: 'Failed to process voice incident' });
-    }
-  }
+  });
 });
 
 /**
@@ -164,7 +193,11 @@ router.get('/voice', async (req, res) => {
     const allIncidents = await storage.getIncidents();
     const voiceIncidents = allIncidents.filter(
       (incident: any) => incident.reportingMethod === 'voice'
-    );
+    ).map((incident: any) => ({
+      ...incident,
+      description: sanitizeTranscriptionText(incident.description),
+      audioTranscription: sanitizeTranscriptionText(incident.audioTranscription),
+    }));
 
     res.json(voiceIncidents);
   } catch (error) {
@@ -240,8 +273,9 @@ router.post('/:id/retranscribe', async (req, res) => {
     const transcriptionResult = await audioTranscriptionService.transcribeAudio(audioPath);
 
     // Update incident with new transcription
+    const sanitizedText = sanitizeTranscriptionText(transcriptionResult.text) || "[Transcription unavailable]";
     const updatedIncident = await storage.updateIncident(incidentId, {
-      audioTranscription: transcriptionResult.text,
+      audioTranscription: sanitizedText,
       transcriptionConfidence: transcriptionResult.confidence,
     });
 
@@ -249,7 +283,7 @@ router.post('/:id/retranscribe', async (req, res) => {
       success: true,
       incident: updatedIncident,
       transcription: {
-        text: transcriptionResult.text,
+        text: sanitizedText,
         confidence: transcriptionResult.confidence,
         language: transcriptionResult.language,
         duration: transcriptionResult.duration,

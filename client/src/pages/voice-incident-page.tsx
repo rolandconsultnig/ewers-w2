@@ -1,34 +1,18 @@
-import { ChangeEvent, useEffect, useState } from "react";
+import { ChangeEvent, useState } from "react";
 import { useLocation } from "wouter";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import MainLayout from "@/components/layout/MainLayout";
 import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
-import { Mic, AlertTriangle, MapPin, Loader2, List, RefreshCw } from "lucide-react";
+import { Mic, Loader2, List, RefreshCw } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
-
-const voiceIncidentSchema = z.object({
-  location: z.string().min(3, "Location is required"),
-  region: z.string().min(2, "Region is required"),
-  state: z.string().optional(),
-  lga: z.string().optional(),
-  severity: z.enum(["low", "medium", "high", "critical"]),
-  category: z.enum(["violence", "protest", "natural_disaster", "economic", "political", "sgbv", "conflict", "terrorism", "kidnapping", "infrastructure"]),
-});
-
-type VoiceIncidentFormValues = z.infer<typeof voiceIncidentSchema>;
 
 type VoiceIncident = {
   id: number;
@@ -46,7 +30,6 @@ type VoiceIncident = {
 export default function VoiceIncidentPage() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const NONE_VALUE = "none";
   const [audioBlob, setAudioBlob] = useState<Blob | File | null>(null);
   const [retranscribingId, setRetranscribingId] = useState<number | null>(null);
 
@@ -60,75 +43,51 @@ export default function VoiceIncidentPage() {
   });
   const [audioDuration, setAudioDuration] = useState(0);
   const [showRecorder, setShowRecorder] = useState(false);
-
-  const form = useForm<VoiceIncidentFormValues>({
-    resolver: zodResolver(voiceIncidentSchema),
-    defaultValues: {
-      location: "",
-      region: "North Central",
-      state: "",
-      lga: "",
-      severity: "medium",
-      category: "conflict",
-    },
-  });
-
-  const nigeriaRegions: Record<string, string[]> = {
-    "North Central": ["Benue", "Kogi", "Kwara", "Nasarawa", "Niger", "Plateau", "FCT"],
-    "North East": ["Adamawa", "Bauchi", "Borno", "Gombe", "Taraba", "Yobe"],
-    "North West": ["Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Sokoto", "Zamfara"],
-    "South East": ["Abia", "Anambra", "Ebonyi", "Enugu", "Imo"],
-    "South South": ["Akwa Ibom", "Bayelsa", "Cross River", "Delta", "Edo", "Rivers"],
-    "South West": ["Ekiti", "Lagos", "Ogun", "Ondo", "Osun", "Oyo"],
+  const sanitizeVisibleText = (value?: string | null): string => {
+    if (!value) return "";
+    const lower = value.toLowerCase();
+    if (
+      lower.includes("openai") ||
+      lower.includes("deepseek") ||
+      lower.includes("api key") ||
+      lower.includes("not configured") ||
+      lower.includes("[transcription unavailable") ||
+      lower.includes("[transcription failed")
+    ) {
+      return "[Transcription unavailable]";
+    }
+    return value;
+  };
+  const sanitizeUserError = (value?: string | null): string => {
+    if (!value) return "Unable to complete this action right now. Please try again.";
+    const lower = value.toLowerCase();
+    if (lower.includes("openai") || lower.includes("deepseek") || lower.includes("api key")) {
+      return "Unable to complete this action right now. Please try again.";
+    }
+    return value;
+  };
+  const getBlobFilename = (blob: Blob): string => {
+    const mime = blob.type?.toLowerCase() || "";
+    if (mime.includes("webm")) return "voice-incident.webm";
+    if (mime.includes("wav")) return "voice-incident.wav";
+    if (mime.includes("mpeg") || mime.includes("mp3")) return "voice-incident.mp3";
+    if (mime.includes("mp4") || mime.includes("m4a")) return "voice-incident.m4a";
+    if (mime.includes("ogg")) return "voice-incident.ogg";
+    return "voice-incident.webm";
   };
 
-  const selectedRegion = form.watch("region");
-  const selectedState = form.watch("state");
-
-  useEffect(() => {
-    if (!selectedState) return;
-    const allowed = nigeriaRegions[selectedRegion as keyof typeof nigeriaRegions] ?? [];
-    if (selectedState && !allowed.includes(selectedState)) {
-      form.setValue("state", "", { shouldDirty: true, shouldValidate: true });
-    }
-  }, [selectedRegion, selectedState, form]);
-
-  // Load LGA options based on the selected state.
-  const { data: lgaOptions = [], isLoading: loadingLgaOptions } = useQuery<string[]>({
-    queryKey: ["/api/lga-options", selectedState],
-    enabled: typeof selectedState === "string" && selectedState.trim().length > 0,
-    queryFn: async () => {
-      const state = selectedState ?? "";
-      const res = await fetch(`/api/lga-options?state=${encodeURIComponent(state)}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load LGA options");
-      return (await res.json()) as string[];
-    },
-  });
-
-  // If the selected state changes, clear LGA so the user doesn't submit an invalid combination.
-  useEffect(() => {
-    form.setValue("lga", NONE_VALUE, { shouldDirty: true, shouldValidate: true });
-  }, [selectedState, form, NONE_VALUE]);
-
   const submitVoiceIncidentMutation = useMutation({
-    mutationFn: async (data: VoiceIncidentFormValues & { audioFile: Blob | File }) => {
+    mutationFn: async (data: { audioFile: Blob | File }) => {
       const formData = new FormData();
       
       // Add audio file (preserve original filename when available for better format detection)
       if (data.audioFile instanceof File) {
         formData.append('audio', data.audioFile, data.audioFile.name);
       } else {
-        formData.append('audio', data.audioFile, 'voice-incident.webm');
+        formData.append('audio', data.audioFile, getBlobFilename(data.audioFile));
       }
       
       // Add form fields
-      formData.append('location', data.location);
-      formData.append('region', data.region);
-      if (data.state && data.state !== NONE_VALUE) formData.append('state', data.state);
-      if (data.lga && data.lga !== NONE_VALUE) formData.append('lga', data.lga);
-      formData.append('severity', data.severity);
-      formData.append('category', data.category);
-
       const response = await fetch('/api/incidents/voice', {
         method: 'POST',
         body: formData,
@@ -136,8 +95,18 @@ export default function VoiceIncidentPage() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to submit voice incident');
+        const rawBody = await response.text();
+        let message = 'Failed to submit voice incident';
+        try {
+          const parsed = JSON.parse(rawBody);
+          const details = parsed?.details ? `: ${parsed.details}` : "";
+          message = `${parsed?.error || message}${details}`;
+        } catch {
+          if (rawBody?.trim()) {
+            message = `${message}: ${rawBody.trim()}`;
+          }
+        }
+        throw new Error(message);
       }
 
       return await response.json();
@@ -149,7 +118,6 @@ export default function VoiceIncidentPage() {
       });
       
       // Reset form and audio
-      form.reset();
       setAudioBlob(null);
       setShowRecorder(false);
       
@@ -162,7 +130,7 @@ export default function VoiceIncidentPage() {
     onError: (error: Error) => {
       toast({
         title: "Submission Failed",
-        description: error.message,
+        description: sanitizeUserError(error.message),
         variant: "destructive",
       });
     },
@@ -171,9 +139,10 @@ export default function VoiceIncidentPage() {
   const handleRecordingComplete = (blob: Blob, duration: number) => {
     setAudioBlob(blob);
     setAudioDuration(duration);
+      setShowRecorder(false);
     toast({
       title: "Recording Saved",
-      description: `Audio recorded successfully (${duration}s). Fill in the details and submit.`,
+        description: `Audio recorded successfully (${duration}s). Submit your voice report below.`,
     });
   };
 
@@ -187,11 +156,11 @@ export default function VoiceIncidentPage() {
 
     toast({
       title: "Audio file attached",
-      description: "Your audio file is ready. Fill in the details and submit.",
+      description: "Your audio file is ready. Submit your voice report below.",
     });
   };
 
-  const onSubmit = (data: VoiceIncidentFormValues) => {
+  const onSubmit = () => {
     if (!audioBlob) {
       toast({
         title: "No Audio Recording",
@@ -201,10 +170,7 @@ export default function VoiceIncidentPage() {
       return;
     }
 
-    submitVoiceIncidentMutation.mutate({
-      ...data,
-      audioFile: audioBlob,
-    });
+    submitVoiceIncidentMutation.mutate({ audioFile: audioBlob });
   };
 
   return (
@@ -302,207 +268,31 @@ export default function VoiceIncidentPage() {
               )}
             </div>
 
-            {/* Form Section */}
             <div className="border-t pt-6">
-              <h3 className="text-lg font-semibold mb-4">Step 2: Provide Location Details</h3>
-              
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="location"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="flex items-center gap-2">
-                            <MapPin className="h-4 w-4" />
-                            Location
-                          </FormLabel>
-                          <FormControl>
-                            <Input placeholder="e.g., Wuse Market, Abuja" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="region"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Region</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select region" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="North Central">North Central</SelectItem>
-                              <SelectItem value="North East">North East</SelectItem>
-                              <SelectItem value="North West">North West</SelectItem>
-                              <SelectItem value="South East">South East</SelectItem>
-                              <SelectItem value="South South">South South</SelectItem>
-                              <SelectItem value="South West">South West</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="lga"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>LGA (Optional)</FormLabel>
-                          <Select
-                            onValueChange={(v) => field.onChange(v)}
-                            value={field.value ?? NONE_VALUE}
-                            disabled={!selectedState}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue
-                                  placeholder={selectedState ? "Select an LGA" : "Select a state first"}
-                                />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value={NONE_VALUE}>Not specified</SelectItem>
-                              {loadingLgaOptions ? (
-                                <SelectItem value="loading" disabled>
-                                  Loading...
-                                </SelectItem>
-                              ) : (
-                                lgaOptions.map((lga) => (
-                                  <SelectItem key={lga} value={lga}>
-                                    {lga}
-                                  </SelectItem>
-                                ))
-                              )}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="state"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>State (Optional)</FormLabel>
-                          <Select
-                            onValueChange={(v) => field.onChange(v)}
-                            value={field.value ?? NONE_VALUE}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select a state" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value={NONE_VALUE}>Not specified</SelectItem>
-                              {selectedRegion &&
-                                nigeriaRegions[selectedRegion]?.map((s) => (
-                                  <SelectItem key={s} value={s}>
-                                    {s}
-                                  </SelectItem>
-                                ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="severity"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="flex items-center gap-2">
-                            <AlertTriangle className="h-4 w-4" />
-                            Severity
-                          </FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select severity" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="low">Low</SelectItem>
-                              <SelectItem value="medium">Medium</SelectItem>
-                              <SelectItem value="high">High</SelectItem>
-                              <SelectItem value="critical">Critical</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="category"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Category</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select category" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="violence">Violence</SelectItem>
-                              <SelectItem value="protest">Protest</SelectItem>
-                              <SelectItem value="natural_disaster">Natural Disaster</SelectItem>
-                              <SelectItem value="economic">Economic</SelectItem>
-                              <SelectItem value="political">Political</SelectItem>
-                              <SelectItem value="sgbv">SGBV</SelectItem>
-                              <SelectItem value="conflict">Conflict</SelectItem>
-                              <SelectItem value="terrorism">Terrorism</SelectItem>
-                              <SelectItem value="kidnapping">Kidnapping</SelectItem>
-                              <SelectItem value="infrastructure">Infrastructure</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <div className="flex gap-3 pt-4">
-                    <Button
-                      type="submit"
-                      disabled={!audioBlob || submitVoiceIncidentMutation.isPending}
-                      className="flex-1"
-                    >
-                      {submitVoiceIncidentMutation.isPending ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Processing...
-                        </>
-                      ) : (
-                        'Submit Voice Report'
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setLocation('/dashboard')}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
-              </Form>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  onClick={onSubmit}
+                  disabled={!audioBlob || submitVoiceIncidentMutation.isPending}
+                  className="flex-1"
+                >
+                  {submitVoiceIncidentMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    "Submit Voice Report"
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setLocation('/dashboard')}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
 
             {/* Info Section */}
@@ -511,7 +301,7 @@ export default function VoiceIncidentPage() {
               <ol className="list-decimal list-inside space-y-1 text-sm text-blue-800">
                 <li>Record your incident report using the voice recorder</li>
                 <li>Our AI will automatically transcribe your audio</li>
-                <li>Fill in the location and severity details</li>
+                <li>Submit immediately after recording or uploading audio</li>
                 <li>Submit - your report will appear on the dashboard for review</li>
                 <li>The original audio is saved for verification purposes</li>
               </ol>
@@ -535,7 +325,7 @@ export default function VoiceIncidentPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <h4 className="font-medium">{inc.title}</h4>
-                          <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{inc.description}</p>
+                          <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{sanitizeVisibleText(inc.description)}</p>
                           <div className="flex gap-2 mt-2">
                             <Badge variant="outline">{inc.severity}</Badge>
                             <Badge variant="secondary">{inc.status}</Badge>
@@ -562,7 +352,7 @@ export default function VoiceIncidentPage() {
                             } catch (e) {
                               toast({
                                 title: "Transcription failed",
-                                description: e instanceof Error ? e.message : "Try again",
+                                description: e instanceof Error ? sanitizeUserError(e.message) : "Try again",
                                 variant: "destructive",
                               });
                             } finally {
@@ -583,7 +373,7 @@ export default function VoiceIncidentPage() {
                       {inc.audioTranscription && (
                         <div className="mt-3 p-2 bg-muted/50 rounded text-sm">
                           <p className="text-xs font-medium text-muted-foreground mb-1">Transcription</p>
-                          <p>{inc.audioTranscription}</p>
+                          <p>{sanitizeVisibleText(inc.audioTranscription)}</p>
                           {inc.transcriptionConfidence != null && (
                             <p className="text-xs text-muted-foreground mt-1">
                               Confidence: {inc.transcriptionConfidence}%

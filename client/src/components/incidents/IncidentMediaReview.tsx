@@ -35,10 +35,33 @@ export function IncidentMediaReview({
 }: IncidentMediaReviewProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [localTranscript, setLocalTranscript] = useState(audioTranscription ?? "");
+  const sanitizeVisibleText = (value?: string | null): string => {
+    if (!value) return "";
+    const lower = value.toLowerCase();
+    if (
+      lower.includes("openai") ||
+      lower.includes("deepseek") ||
+      lower.includes("api key") ||
+      lower.includes("not configured") ||
+      lower.includes("[transcription unavailable") ||
+      lower.includes("[transcription failed")
+    ) {
+      return "[Transcription unavailable]";
+    }
+    return value;
+  };
+  const sanitizeUserError = (value?: string | null): string => {
+    if (!value) return "Unable to complete this action right now. Please try again.";
+    const lower = value.toLowerCase();
+    if (lower.includes("openai") || lower.includes("deepseek") || lower.includes("api key")) {
+      return "Unable to complete this action right now. Please try again.";
+    }
+    return value;
+  };
+  const [localTranscript, setLocalTranscript] = useState(sanitizeVisibleText(audioTranscription ?? ""));
 
   useEffect(() => {
-    setLocalTranscript(audioTranscription ?? "");
+    setLocalTranscript(sanitizeVisibleText(audioTranscription ?? ""));
   }, [audioTranscription]);
 
   const transcribeMutation = useMutation({
@@ -49,7 +72,7 @@ export function IncidentMediaReview({
       }>;
     },
     onSuccess: (data) => {
-      const t = data?.transcription?.text ?? "";
+      const t = sanitizeVisibleText(data?.transcription?.text ?? "");
       setLocalTranscript(t);
       toast({ title: "Transcription updated", description: t ? "Text refreshed from the recording." : "No text returned." });
       onTranscriptionUpdated?.();
@@ -57,7 +80,7 @@ export function IncidentMediaReview({
       queryClient.invalidateQueries({ queryKey: ["/api/incidents/pending-review"] });
     },
     onError: (e: Error) => {
-      toast({ title: "Transcription failed", description: e.message, variant: "destructive" });
+      toast({ title: "Transcription failed", description: sanitizeUserError(e.message), variant: "destructive" });
     },
   });
 

@@ -3,10 +3,24 @@ import fs from 'fs';
 import path from 'path';
 import { logger } from './logger';
 
-// Initialize OpenAI client for Whisper API
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || '',
-});
+type AiProvider = 'deepseek' | 'openai';
+
+const deepseekKey = process.env.DEEPSEEK_API_KEY;
+const openaiKey = process.env.OPENAI_API_KEY;
+const provider: AiProvider | null = deepseekKey ? 'deepseek' : openaiKey ? 'openai' : null;
+
+// DeepSeek endpoint can be overridden if deployment uses a proxy/gateway.
+const deepseekBaseUrl = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com';
+const transcriptionModel =
+  process.env.AUDIO_TRANSCRIPTION_MODEL ||
+  (provider === 'deepseek' ? 'whisper-1' : 'whisper-1');
+
+const openai = provider
+  ? new OpenAI({
+      apiKey: provider === 'deepseek' ? deepseekKey : openaiKey,
+      ...(provider === 'deepseek' ? { baseURL: deepseekBaseUrl } : {}),
+    })
+  : null;
 
 export interface TranscriptionResult {
   text: string;
@@ -20,11 +34,11 @@ export class AudioTranscriptionService {
   private isEnabled: boolean;
 
   private constructor() {
-    this.isEnabled = !!process.env.OPENAI_API_KEY;
+    this.isEnabled = !!openai;
     if (!this.isEnabled) {
-      logger.warn('Audio transcription service disabled: OPENAI_API_KEY not configured');
+      logger.warn('Audio transcription service disabled: set DEEPSEEK_API_KEY or OPENAI_API_KEY');
     } else {
-      logger.info('Audio transcription service initialized with OpenAI Whisper');
+      logger.info(`Audio transcription service initialized with ${provider} provider`);
     }
   }
 
@@ -44,7 +58,7 @@ export class AudioTranscriptionService {
     if (!this.isEnabled) {
       logger.warn('Transcription attempted but service is disabled');
       return {
-        text: '[Transcription unavailable - OpenAI API key not configured]',
+        text: '[Transcription unavailable]',
         confidence: 0,
       };
     }
@@ -71,10 +85,10 @@ export class AudioTranscriptionService {
       // Create a read stream for the audio file
       const audioStream = fs.createReadStream(audioFilePath);
 
-      // Call OpenAI Whisper API
-      const transcription = await openai.audio.transcriptions.create({
+      // Call AI provider transcription endpoint (OpenAI-compatible client)
+      const transcription = await openai!.audio.transcriptions.create({
         file: audioStream,
-        model: 'whisper-1',
+        model: transcriptionModel,
         language: 'en', // Can be auto-detected or set to specific language
         response_format: 'verbose_json', // Get detailed response with timestamps
       });
@@ -97,7 +111,7 @@ export class AudioTranscriptionService {
       
       // Return fallback result
       return {
-        text: `[Transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}]`,
+        text: '[Transcription failed]',
         confidence: 0,
       };
     }
@@ -112,7 +126,7 @@ export class AudioTranscriptionService {
   async transcribeAudioBuffer(audioBuffer: Buffer, filename: string): Promise<TranscriptionResult> {
     if (!this.isEnabled) {
       return {
-        text: '[Transcription unavailable - OpenAI API key not configured]',
+        text: '[Transcription unavailable]',
         confidence: 0,
       };
     }
@@ -141,7 +155,7 @@ export class AudioTranscriptionService {
     } catch (error) {
       logger.error('Audio buffer transcription failed:', error);
       return {
-        text: `[Transcription failed: ${error instanceof Error ? error.message : 'Unknown error'}]`,
+        text: '[Transcription failed]',
         confidence: 0,
       };
     }
@@ -168,6 +182,10 @@ export class AudioTranscriptionService {
       'webm',
       'ogg',
       'flac',
+      'aac',
+      'amr',
+      '3gp',
+      '3gpp',
     ];
   }
 
